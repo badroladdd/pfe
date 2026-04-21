@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:myapp/api.dart';
+import 'package:myapp/navigation/admin_navigation.dart';
+import 'package:myapp/navigation/agent_navigation.dart';
 import 'package:myapp/navigation/main_navigation.dart';
 
 void main() {
@@ -35,11 +37,23 @@ class AuthWrapper extends StatefulWidget {
 class _AuthWrapperState extends State<AuthWrapper> {
   final ApiClient _api = ApiClient();
   bool _checking = true;
+  String _role = 'client';
 
   @override
   void initState() {
     super.initState();
-    _api.isLoggedIn.then((_) => setState(() => _checking = false));
+    _loadRole();
+  }
+
+  Future<void> _loadRole() async {
+    final loggedIn = await _api.isLoggedIn;
+    if (loggedIn) {
+      try {
+        final profile = await _api.getProfile();
+        _role = profile['role']?.toString() ?? 'client';
+      } catch (_) {}
+    }
+    if (mounted) setState(() => _checking = false);
   }
 
   @override
@@ -47,6 +61,8 @@ class _AuthWrapperState extends State<AuthWrapper> {
     if (_checking) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
+    if (_role == 'admin') return const AdminNavigation();
+    if (_role == 'agent') return const AgentNavigation();
     return const MainNavigation();
   }
 }

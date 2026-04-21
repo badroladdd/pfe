@@ -132,6 +132,8 @@ class _HomeScreenState extends State<HomeScreen> {
           hasBaggage: hasBaggage,
           isRefundable: isRefundable,
           price: double.tryParse(summary['total_price']?.toString() ?? '0') ?? 0,
+          departureAt: summary['departure_at']?.toString() ?? '',
+          arrivalAt: summary['arrival_at']?.toString() ?? '',
         );
       }).toList();
 

@@ -1,14 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:myapp/api.dart';
 
-class AdminReservationsScreen extends StatefulWidget {
-  const AdminReservationsScreen({super.key});
+class AgentReservationsScreen extends StatefulWidget {
+  const AgentReservationsScreen({super.key});
 
   @override
-  State<AdminReservationsScreen> createState() => _AdminReservationsScreenState();
+  State<AgentReservationsScreen> createState() => _AgentReservationsScreenState();
 }
 
-class _AdminReservationsScreenState extends State<AdminReservationsScreen> {
+class _AgentReservationsScreenState extends State<AgentReservationsScreen> {
   final _api = ApiClient();
   List<Map<String, dynamic>> _reservations = [];
   bool _loading = true;
@@ -24,7 +24,7 @@ class _AdminReservationsScreenState extends State<AdminReservationsScreen> {
   Future<void> _load() async {
     setState(() { _loading = true; _error = null; });
     try {
-      final list = await _api.listAdminReservations(
+      final list = await _api.listAgentReservations(
         status: _statusFilter == 'all' ? null : _statusFilter,
       );
       setState(() { _reservations = list; _loading = false; });
@@ -51,25 +51,31 @@ class _AdminReservationsScreenState extends State<AdminReservationsScreen> {
     }
   }
 
-  Future<void> _cancelReservation(Map<String, dynamic> r) async {
+  Future<void> _updateStatus(Map<String, dynamic> r, String newStatus) async {
+    final action = newStatus == 'confirmed' ? 'confirmer' : 'annuler';
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Annuler la réservation'),
-        content: Text('Annuler la réservation ${r['booking_reference'] ?? r['id']} ?'),
+        title: Text('${action[0].toUpperCase()}${action.substring(1)} la réservation'),
+        content: Text('Voulez-vous $action la réservation ${r['booking_reference'] ?? r['id'].toString().substring(0, 8)} ?'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Non')),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('Oui, annuler', style: TextStyle(color: Colors.white)),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: newStatus == 'confirmed' ? Colors.green : Colors.red,
+            ),
+            child: Text(
+              newStatus == 'confirmed' ? 'Confirmer' : 'Annuler',
+              style: const TextStyle(color: Colors.white),
+            ),
           ),
         ],
       ),
     );
     if (confirmed != true) return;
     try {
-      await _api.cancelReservation(r['id'].toString());
+      await _api.updateReservationStatus(r['id'].toString(), newStatus);
       _load();
     } catch (e) {
       if (!mounted) return;
@@ -90,18 +96,17 @@ class _AdminReservationsScreenState extends State<AdminReservationsScreen> {
               children: [
                 Row(
                   children: [
-                    const Icon(Icons.receipt_long, color: Colors.indigo),
+                    const Icon(Icons.receipt_long, color: Colors.blue),
                     const SizedBox(width: 8),
                     Text('Réservations (${_reservations.length})',
                         style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
                   ],
                 ),
                 const SizedBox(height: 10),
-                // Status filter chips
                 SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   child: Row(
-                    children: ['all', 'confirmed', 'pending', 'cancelled'].map((s) {
+                    children: ['all', 'pending', 'confirmed', 'cancelled'].map((s) {
                       final active = _statusFilter == s;
                       final label = s == 'all' ? 'Tous' : _statusLabel(s);
                       return Padding(
@@ -109,11 +114,8 @@ class _AdminReservationsScreenState extends State<AdminReservationsScreen> {
                         child: ChoiceChip(
                           label: Text(label),
                           selected: active,
-                          onSelected: (_) {
-                            setState(() => _statusFilter = s);
-                            _load();
-                          },
-                          selectedColor: Colors.indigo,
+                          onSelected: (_) { setState(() => _statusFilter = s); _load(); },
+                          selectedColor: Colors.blue,
                           labelStyle: TextStyle(
                             color: active ? Colors.white : Colors.black87,
                             fontWeight: FontWeight.w500,
@@ -141,11 +143,11 @@ class _AdminReservationsScreenState extends State<AdminReservationsScreen> {
                   final r = _reservations[i];
                   final statusStr = r['status'] as String? ?? '';
                   final ref = r['booking_reference']?.toString().isNotEmpty == true
-                      ? r['booking_reference'] : r['id'].toString().substring(0, 8);
+                      ? r['booking_reference']
+                      : r['id'].toString().substring(0, 8);
                   final route = '${r['origin_iata'] ?? '?'} → ${r['destination_iata'] ?? '?'}';
                   final amount = r['total_amount'] != null
-                      ? '${r['total_amount']} ${r['currency'] ?? ''}'
-                      : '';
+                      ? '${r['total_amount']} ${r['currency'] ?? ''}' : '';
 
                   return Card(
                     margin: const EdgeInsets.only(bottom: 10),
@@ -193,21 +195,43 @@ class _AdminReservationsScreenState extends State<AdminReservationsScreen> {
                               children: [
                                 const Icon(Icons.person_outline, size: 14, color: Colors.black45),
                                 const SizedBox(width: 4),
-                                Text(r['user_email'], style: const TextStyle(fontSize: 12, color: Colors.black54)),
+                                Text(r['user_email'],
+                                    style: const TextStyle(fontSize: 12, color: Colors.black54)),
                               ],
                             ),
                           ],
-                          if (statusStr == 'confirmed') ...[
+                          // Action buttons
+                          if (statusStr == 'pending') ...[
+                            const SizedBox(height: 10),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.end,
+                              children: [
+                                TextButton.icon(
+                                  onPressed: () => _updateStatus(r, 'cancelled'),
+                                  icon: const Icon(Icons.cancel_outlined, size: 16, color: Colors.red),
+                                  label: const Text('Annuler', style: TextStyle(color: Colors.red)),
+                                ),
+                                const SizedBox(width: 8),
+                                ElevatedButton.icon(
+                                  onPressed: () => _updateStatus(r, 'confirmed'),
+                                  icon: const Icon(Icons.check_circle_outline, size: 16),
+                                  label: const Text('Confirmer'),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.green,
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ] else if (statusStr == 'confirmed') ...[
                             const SizedBox(height: 10),
                             Align(
                               alignment: Alignment.centerRight,
                               child: TextButton.icon(
-                                onPressed: () => _cancelReservation(r),
+                                onPressed: () => _updateStatus(r, 'cancelled'),
                                 icon: const Icon(Icons.cancel_outlined, size: 16, color: Colors.red),
                                 label: const Text('Annuler', style: TextStyle(color: Colors.red)),
-                                style: TextButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                                ),
                               ),
                             ),
                           ],

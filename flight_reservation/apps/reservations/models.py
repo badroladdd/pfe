@@ -32,6 +32,8 @@ class Reservation(models.Model):
     booking_reference = models.CharField(max_length=50, blank=True)
     # Full Duffel order snapshot — invaluable for debugging and audit
     raw_duffel_order = models.JSONField(null=True, blank=True)
+    # Duffel-ready booking data stored when client books — used by agent to confirm
+    pending_booking_data = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -28,25 +28,12 @@ def create_reservation(
     payment_data: dict,
 ) -> Reservation:
     """
-    Full booking flow:
+    Client booking flow (pending — waits for agent confirmation):
 
-      1. Guard — prevent duplicate bookings for same user + offer
-      2. Validate — confirm the offer is still live on Duffel
-      3. Duffel — POST /air/orders  (irreversible external call)
-      4. DB — save Reservation + Passengers inside transaction.atomic()
-      5. Return Reservation
-
-    ⚠️  Architecture note:
-        The Duffel HTTP call is intentionally placed OUTSIDE transaction.atomic().
-        HTTP requests cannot be rolled back. If we placed the Duffel call inside
-        the transaction and it succeeded but the DB write failed, the rollback
-        would only undo the DB — the Duffel charge would remain.
-
-        Instead:
-        - Call Duffel first (outside transaction)
-        - Write to DB inside transaction.atomic()
-        - If DB write fails after a successful Duffel call, log a CRITICAL alert
-          containing the external_order_id for manual reconciliation.
+      1. Guard — prevent duplicate bookings
+      2. Validate offer is still live on Duffel
+      3. Save reservation as PENDING with booking data snapshot
+      4. Duffel order is NOT created yet — agent must confirm first
     """
 
     # ── 1. Duplicate guard ────────────────────────────────────────────
@@ -55,12 +42,10 @@ def create_reservation(
         offer_id=offer_id,
         status__in=[Reservation.Status.PENDING, Reservation.Status.CONFIRMED],
     ).exists()
-
     if already_exists:
         raise DuplicateBookingException()
 
     # ── 2. Validate offer is still live ──────────────────────────────
-    # Raises DuffelOfferExpiredException if the offer has expired.
     offer = duffel.get_offer(offer_id)
     logger.info(
         "Offer validated: id=%s total=%s %s",
@@ -69,61 +54,80 @@ def create_reservation(
         offer.get("total_currency"),
     )
 
-    # ── 3. Call Duffel — outside atomic block ─────────────────────────
-    duffel_order = duffel.create_order(
-        offer_id=offer_id,
-        passengers=_build_duffel_passengers(passengers_data),
-        payment=_build_duffel_payment(payment_data),
-        metadata={"user_id": str(user.id), "user_email": user.email},
-    )
+    # ── 3. Save as PENDING — NO Duffel order yet ──────────────────────
+    with transaction.atomic():
+        reservation = Reservation.objects.create(
+            user=user,
+            offer_id=offer_id,
+            status=Reservation.Status.PENDING,
+            total_amount=Decimal(str(offer.get("total_amount", "0"))),
+            currency=offer.get("total_currency", "EUR"),
+            raw_duffel_order=offer,
+            pending_booking_data={
+                "duffel_passengers": _build_duffel_passengers(passengers_data),
+                "payment": _build_duffel_payment(payment_data),
+            },
+        )
 
-    # At this point, Duffel has confirmed the booking and (if applicable)
-    # charged the payment method. We MUST persist external_order_id.
+        passenger_objs = [
+            _build_passenger_obj_pending(reservation, p)
+            for p in passengers_data
+        ]
+        Passenger.objects.bulk_create(passenger_objs)
+
+        logger.info(
+            "Reservation created (pending): id=%s user=%s offer=%s",
+            reservation.id, user.email, offer_id,
+        )
+        return reservation
+
+
+def confirm_reservation(reservation: Reservation, agent) -> Reservation:
+    """
+    Agent confirmation flow:
+      1. Read stored pending_booking_data
+      2. Call Duffel create_order (irreversible)
+      3. Update DB with order data and set status=CONFIRMED
+    """
+    if reservation.status != Reservation.Status.PENDING:
+        from core.exceptions import CancellationNotAllowedException
+        raise CancellationNotAllowedException("Only pending reservations can be confirmed.")
+
+    data = reservation.pending_booking_data or {}
+    duffel_passengers = data.get("duffel_passengers", [])
+    payment = data.get("payment", {})
+
+    # ── Call Duffel — outside atomic block ────────────────────────────
+    duffel_order = duffel.create_order(
+        offer_id=reservation.offer_id,
+        passengers=duffel_passengers,
+        payment=payment,
+        metadata={"user_id": str(reservation.user.id), "confirmed_by": str(agent.id)},
+    )
     external_order_id = duffel_order["id"]
 
-    # ── 4. Persist to DB ──────────────────────────────────────────────
     try:
         with transaction.atomic():
-            reservation = Reservation.objects.create(
-                user=user,
-                offer_id=offer_id,
-                external_order_id=external_order_id,
-                status=Reservation.Status.CONFIRMED,
-                total_amount=Decimal(str(duffel_order["total_amount"])),
-                currency=duffel_order["total_currency"],
-                booking_reference=duffel_order.get("booking_reference", ""),
-                raw_duffel_order=duffel_order,
-            )
-
-            # Build all Passenger objects and insert in a single query
-            passenger_objs = [
-                _build_passenger_obj(reservation, p, duffel_order)
-                for p in passengers_data
-            ]
-            Passenger.objects.bulk_create(passenger_objs)
-
+            reservation.external_order_id = external_order_id
+            reservation.status = Reservation.Status.CONFIRMED
+            reservation.total_amount = Decimal(str(duffel_order["total_amount"]))
+            reservation.currency = duffel_order["total_currency"]
+            reservation.booking_reference = duffel_order.get("booking_reference", "")
+            reservation.raw_duffel_order = duffel_order
+            reservation.pending_booking_data = None
+            reservation.save(update_fields=[
+                "external_order_id", "status", "total_amount", "currency",
+                "booking_reference", "raw_duffel_order", "pending_booking_data", "updated_at",
+            ])
             logger.info(
-                "Reservation saved: id=%s external_order_id=%s user=%s pax=%d",
-                reservation.id,
-                external_order_id,
-                user.email,
-                len(passenger_objs),
+                "Reservation confirmed by agent: id=%s order=%s agent=%s",
+                reservation.id, external_order_id, agent.email,
             )
             return reservation
-
     except Exception as db_error:
-        # ⚠️  CRITICAL — Duffel order succeeded but DB write failed.
-        #     The booking exists on Duffel but NOT in our database.
-        #     This external_order_id must be reconciled manually.
         logger.critical(
-            "DB WRITE FAILED after successful Duffel order! "
-            "MANUAL RECONCILIATION REQUIRED. "
-            "external_order_id=%s user=%s offer_id=%s error=%s",
-            external_order_id,
-            user.email,
-            offer_id,
-            db_error,
-            exc_info=True,
+            "DB WRITE FAILED after Duffel order! RECONCILE: external_order_id=%s reservation=%s error=%s",
+            external_order_id, reservation.id, db_error, exc_info=True,
         )
         raise
 
@@ -253,6 +257,26 @@ def _build_duffel_payment(payment_data: dict) -> dict:
         "amount": str(payment_data["amount"]),
         "currency": payment_data["currency"],
     }
+
+
+def _build_passenger_obj_pending(reservation: Reservation, p: dict) -> Passenger:
+    """Build a Passenger object from serializer data without a Duffel order."""
+    docs = p.get("identity_documents", [])
+    first_doc = docs[0] if docs else {}
+    return Passenger(
+        reservation=reservation,
+        type=p.get("type", Passenger.Type.ADULT),
+        title=p["title"],
+        first_name=p["given_name"],
+        last_name=p["family_name"],
+        born_on=p["born_on"],
+        email=p["email"],
+        phone=p.get("phone_number", ""),
+        id_document_type=first_doc.get("type", ""),
+        id_document_number=first_doc.get("unique_identifier", ""),
+        id_document_expiry=first_doc.get("expires_on"),
+        nationality=first_doc.get("issuing_country_code", ""),
+    )
 
 
 def _build_passenger_obj(

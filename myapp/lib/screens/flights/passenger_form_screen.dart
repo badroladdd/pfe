@@ -7,12 +7,14 @@ class PassengerFormScreen extends StatefulWidget {
   final Map<String, dynamic> rawOffer;
   final Flight flight;
   final VoidCallback onBookingCreated;
+  final String? forUserId; // agent: book on behalf of this user
 
   const PassengerFormScreen({
     super.key,
     required this.rawOffer,
     required this.flight,
     required this.onBookingCreated,
+    this.forUserId,
   });
 
   @override
@@ -67,20 +69,27 @@ class _PassengerFormScreenState extends State<PassengerFormScreen> {
 
     setState(() => _loading = true);
     try {
-      final reservation = await _api.createReservation(
-        flightOffer: widget.rawOffer,
-        passengers: [_buildPassenger().toMap()],
-        acceptPriceChange: acceptPriceChange,
-      );
-
-      final ref = reservation['booking_reference'] as String? ??
-                  reservation['pnr'] as String? ??
-                  reservation['id']?.toString() ?? 'N/A';
+      if (widget.forUserId != null) {
+        await _api.createReservationForClient(
+          flightOffer: widget.rawOffer,
+          passengers: [_buildPassenger().toMap()],
+          forUserId: widget.forUserId,
+        );
+      } else {
+        await _api.createReservation(
+          flightOffer: widget.rawOffer,
+          passengers: [_buildPassenger().toMap()],
+          acceptPriceChange: acceptPriceChange,
+        );
+      }
 
       widget.onBookingCreated();
 
       if (!mounted) return;
-      _snack('Réservation confirmée ! Référence: $ref', Colors.green);
+      _snack(
+        'Demande envoyée ! Votre réservation est en attente de confirmation par un agent.',
+        Colors.orange,
+      );
       Navigator.popUntil(context, (route) => route.isFirst);
     } on PriceChangedException catch (e) {
       setState(() => _loading = false);

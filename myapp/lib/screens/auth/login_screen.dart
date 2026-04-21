@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:myapp/api.dart';
-import 'package:myapp/navigation/main_navigation.dart';
 import 'package:myapp/navigation/admin_navigation.dart';
+import 'package:myapp/navigation/agent_navigation.dart';
+import 'package:myapp/navigation/main_navigation.dart';
 import 'package:myapp/screens/auth/register_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -31,15 +32,18 @@ class _LoginScreenState extends State<LoginScreen> {
       final profile = await _api.getProfile();
       if (!mounted) return;
       final role = profile['role'] as String? ?? 'client';
-      if (role == 'admin' || role == 'agent') {
-        Navigator.pushReplacement(
-          context, MaterialPageRoute(builder: (_) => const AdminNavigation()),
-        );
+      if (!mounted) return;
+      Widget destination;
+      if (role == 'admin') {
+        destination = const AdminNavigation();
+      } else if (role == 'agent') {
+        destination = const AgentNavigation();
       } else {
-        Navigator.pushReplacement(
-          context, MaterialPageRoute(builder: (_) => const MainNavigation()),
-        );
+        destination = const MainNavigation();
       }
+      Navigator.pushReplacement(
+        context, MaterialPageRoute(builder: (_) => destination),
+      );
     } catch (e) {
       _snack('Identifiants incorrects.', Colors.red);
     } finally {

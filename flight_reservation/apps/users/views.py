@@ -42,6 +42,72 @@ class AdminUsersView(APIView):
         return Response({"results": UserSerializer(users, many=True).data})
 
 
+class AdminCreateUserView(APIView):
+    """POST /api/v1/admin/users/create/ — create a new user (admin only)."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        if request.user.role != "admin":
+            return Response({"detail": "Admin access required."}, status=status.HTTP_403_FORBIDDEN)
+        serializer = RegisterSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+        role = request.data.get("role", "client")
+        if role in ("admin", "agent", "client"):
+            user.role = role
+            user.save(update_fields=["role"])
+        return Response(UserSerializer(user).data, status=status.HTTP_201_CREATED)
+
+
+class AdminUserDetailView(APIView):
+    """
+    GET    /api/v1/admin/users/{id}/  — get user detail
+    PATCH  /api/v1/admin/users/{id}/  — update role / is_active
+    DELETE /api/v1/admin/users/{id}/  — delete user
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def _get_user(self, user_id):
+        try:
+            return User.objects.get(pk=user_id)
+        except User.DoesNotExist:
+            return None
+
+    def get(self, request, user_id):
+        if request.user.role != "admin":
+            return Response({"detail": "Admin access required."}, status=status.HTTP_403_FORBIDDEN)
+        user = self._get_user(user_id)
+        if not user:
+            return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(UserSerializer(user).data)
+
+    def patch(self, request, user_id):
+        if request.user.role != "admin":
+            return Response({"detail": "Admin access required."}, status=status.HTTP_403_FORBIDDEN)
+        user = self._get_user(user_id)
+        if not user:
+            return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+        allowed = {"role", "is_active", "first_name", "last_name", "phone"}
+        data = {k: v for k, v in request.data.items() if k in allowed}
+        serializer = UserSerializer(user, data=data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+    def delete(self, request, user_id):
+        if request.user.role != "admin":
+            return Response({"detail": "Admin access required."}, status=status.HTTP_403_FORBIDDEN)
+        if str(request.user.pk) == str(user_id):
+            return Response({"detail": "Cannot delete your own account."}, status=status.HTTP_400_BAD_REQUEST)
+        user = self._get_user(user_id)
+        if not user:
+            return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+        user.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
 class ChangePasswordView(APIView):
     permission_classes = [IsAuthenticated]
 

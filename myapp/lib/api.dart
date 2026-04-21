@@ -345,6 +345,77 @@ class ApiClient {
     return (data['results'] as List).cast<Map<String, dynamic>>();
   }
 
+  /// Create a new user (admin only).
+  Future<Map<String, dynamic>> createAdminUser({
+    required String email,
+    required String password,
+    required String firstName,
+    required String lastName,
+    required String role,
+    String phone = '',
+  }) async {
+    return await _post('/admin/users/create/', body: {
+      'email':      email,
+      'password':   password,
+      'password2':  password,
+      'first_name': firstName,
+      'last_name':  lastName,
+      'phone':      phone,
+      'role':       role,
+    });
+  }
+
+  /// Update a user's role or active status (admin only).
+  Future<Map<String, dynamic>> updateAdminUser(String userId, Map<String, dynamic> fields) async {
+    return await _patch('/admin/users/$userId/', body: fields);
+  }
+
+  /// Delete a user (admin only).
+  Future<void> deleteAdminUser(String userId) async {
+    await _delete('/admin/users/$userId/');
+  }
+
+  /// List ALL reservations (admin only).
+  Future<List<Map<String, dynamic>>> listAdminReservations({String? status}) async {
+    final query = <String, String>{};
+    if (status != null) query['status'] = status;
+    final data = await _get('/admin/reservations/', queryParams: query);
+    return (data['results'] as List).cast<Map<String, dynamic>>();
+  }
+
+  // ══════════════════════════════════════════════════════════════════
+  // AGENT
+  // ══════════════════════════════════════════════════════════════════
+
+  /// List all reservations (agent/admin).
+  Future<List<Map<String, dynamic>>> listAgentReservations({String? status}) async {
+    final query = <String, String>{};
+    if (status != null) query['status'] = status;
+    final data = await _get('/agent/reservations/', queryParams: query);
+    return (data['results'] as List).cast<Map<String, dynamic>>();
+  }
+
+  /// Confirm or cancel a reservation (agent action).
+  Future<Map<String, dynamic>> updateReservationStatus(String reservationId, String status) async {
+    final data = await _patch('/agent/reservations/$reservationId/', body: {'status': status});
+    return data['data'] as Map<String, dynamic>;
+  }
+
+  /// Create a reservation on behalf of a client (agent flow).
+  Future<Map<String, dynamic>> createReservationForClient({
+    required Map<String, dynamic> flightOffer,
+    required List<Map<String, dynamic>> passengers,
+    String? forUserId,
+  }) async {
+    final body = <String, dynamic>{
+      'flight_offer': flightOffer,
+      'passengers':   passengers,
+      'for_user_id':  forUserId,
+    };
+    final data = await _post('/agent/reservations/', body: body);
+    return data['data'] as Map<String, dynamic>;
+  }
+
   /// Cancel a confirmed reservation. Syncs cancellation with Duffel.
   ///
   /// Returns the updated reservation map with status='cancelled'.

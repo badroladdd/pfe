@@ -138,9 +138,31 @@ class PassengerOutputSerializer(serializers.ModelSerializer):
 
 
 class ReservationOutputSerializer(serializers.ModelSerializer):
-    passengers = PassengerOutputSerializer(many=True, read_only=True)
-    user_email = serializers.EmailField(source="user.email", read_only=True)
+    passengers     = PassengerOutputSerializer(many=True, read_only=True)
+    user_email     = serializers.EmailField(source="user.email", read_only=True)
     user_full_name = serializers.CharField(source="user.full_name", read_only=True)
+    origin_iata      = serializers.SerializerMethodField()
+    destination_iata = serializers.SerializerMethodField()
+
+    def _slices(self, obj):
+        order = obj.raw_duffel_order or {}
+        return order.get("slices") or []
+
+    def get_origin_iata(self, obj):
+        slices = self._slices(obj)
+        if not slices:
+            return ""
+        first_seg = (slices[0].get("segments") or [{}])[0]
+        return (first_seg.get("origin") or {}).get("iata_code", "")
+
+    def get_destination_iata(self, obj):
+        slices = self._slices(obj)
+        if not slices:
+            return ""
+        # For round-trips use outbound slice destination
+        outbound = slices[0]
+        last_seg = (outbound.get("segments") or [{}])[-1]
+        return (last_seg.get("destination") or {}).get("iata_code", "")
 
     class Meta:
         model = Reservation
@@ -154,6 +176,8 @@ class ReservationOutputSerializer(serializers.ModelSerializer):
             "status",
             "total_amount",
             "currency",
+            "origin_iata",
+            "destination_iata",
             "passengers",
             "created_at",
             "updated_at",

@@ -8,6 +8,8 @@ class Flight {
   final bool hasBaggage;
   final bool isRefundable;
   final double price;
+  final String departureAt; // ISO datetime, e.g. "2025-04-30T21:25:00"
+  final String arrivalAt;   // ISO datetime
 
   Flight({
     required this.from,
@@ -19,5 +21,7 @@ class Flight {
     required this.hasBaggage,
     required this.isRefundable,
     required this.price,
+    this.departureAt = '',
+    this.arrivalAt = '',
   });
 }

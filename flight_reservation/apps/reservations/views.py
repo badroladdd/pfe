@@ -132,6 +132,134 @@ class DuffelWebhookView(APIView):
         return Response({"received": True})
 
 
+class AdminReservationsView(APIView):
+    """GET /api/v1/admin/reservations/ — list ALL reservations (admin only)."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if request.user.role not in ("admin", "agent"):
+            return Response({"detail": "Admin access required."}, status=status.HTTP_403_FORBIDDEN)
+        qs = Reservation.objects.select_related("user").order_by("-created_at")
+        status_filter = request.query_params.get("status")
+        if status_filter:
+            qs = qs.filter(status=status_filter)
+        serializer = ReservationOutputSerializer(qs, many=True)
+        return Response({"results": serializer.data})
+
+
+class AgentReservationsView(APIView):
+    """
+    GET   /api/v1/agent/reservations/        — list all reservations (agent/admin)
+    PATCH /api/v1/agent/reservations/{id}/   — confirm or cancel a reservation
+    POST  /api/v1/agent/reservations/        — create reservation on behalf of a client
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def _check_agent(self, request):
+        if request.user.role not in ("agent", "admin"):
+            return Response({"detail": "Agent access required."}, status=status.HTTP_403_FORBIDDEN)
+        return None
+
+    def get(self, request):
+        err = self._check_agent(request)
+        if err:
+            return err
+        qs = Reservation.objects.select_related("user").order_by("-created_at")
+        status_filter = request.query_params.get("status")
+        if status_filter:
+            qs = qs.filter(status=status_filter)
+        serializer = ReservationOutputSerializer(qs, many=True)
+        return Response({"results": serializer.data})
+
+    def post(self, request):
+        """Create a reservation on behalf of a client (agent flow)."""
+        err = self._check_agent(request)
+        if err:
+            return err
+
+        flight_offer      = request.data.get("flight_offer", {})
+        offer_id          = flight_offer.get("id") or flight_offer.get("offer_id")
+        flutter_passengers = request.data.get("passengers", [])
+        for_user_id       = request.data.get("for_user_id")
+
+        if not offer_id:
+            return Response({"detail": "flight_offer.id is required."}, status=status.HTTP_400_BAD_REQUEST)
+        if not flutter_passengers:
+            return Response({"detail": "At least one passenger is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Resolve target user
+        booking_user = request.user
+        if for_user_id:
+            try:
+                from apps.users.models import User as UserModel
+                booking_user = UserModel.objects.get(pk=for_user_id)
+            except UserModel.DoesNotExist:
+                return Response({"detail": "Client not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        offer_passengers = flight_offer.get("passengers", [])
+        payload = {
+            "offer_id": offer_id,
+            "passengers": _convert_flutter_passengers(flutter_passengers, offer_passengers),
+            "payment": {
+                "type": "balance",
+                "amount": str(flight_offer.get("total_amount", "0")),
+                "currency": flight_offer.get("total_currency", "EUR"),
+            },
+        }
+        serializer = CreateReservationSerializer(data=payload)
+        serializer.is_valid(raise_exception=True)
+        d = serializer.validated_data
+        reservation = services.create_reservation(
+            user=booking_user,
+            offer_id=d["offer_id"],
+            passengers_data=d["passengers"],
+            payment_data=d["payment"],
+        )
+        return Response({"data": ReservationOutputSerializer(reservation).data}, status=status.HTTP_201_CREATED)
+
+
+class AgentReservationActionView(APIView):
+    """
+    PATCH /api/v1/agent/reservations/{id}/  — confirm or cancel
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, pk):
+        if request.user.role not in ("agent", "admin"):
+            return Response({"detail": "Agent access required."}, status=status.HTTP_403_FORBIDDEN)
+
+        new_status = request.data.get("status")
+        if new_status not in ("confirmed", "cancelled"):
+            return Response(
+                {"detail": "status must be 'confirmed' or 'cancelled'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            reservation = Reservation.objects.get(pk=pk)
+        except Reservation.DoesNotExist:
+            return Response({"detail": "Reservation not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        if reservation.status == "cancelled":
+            return Response({"detail": "Reservation is already cancelled."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if new_status == "confirmed":
+            reservation = services.confirm_reservation(reservation, request.user)
+        else:
+            # Cancel: trigger Duffel if already booked, otherwise just mark cancelled
+            if reservation.external_order_id:
+                reservation = services.cancel_reservation(str(pk), request.user)
+            else:
+                reservation.status = Reservation.Status.CANCELLED
+                reservation.pending_booking_data = None
+                reservation.save(update_fields=["status", "pending_booking_data", "updated_at"])
+
+        return Response({"data": ReservationOutputSerializer(reservation).data})
+
+
 class AdminStatsView(APIView):
     """GET /api/v1/admin/stats/ — summary stats for the admin dashboard."""
 
