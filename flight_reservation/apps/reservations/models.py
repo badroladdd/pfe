@@ -2,6 +2,7 @@ import uuid
 
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 
 
 class Reservation(models.Model):
@@ -153,3 +154,41 @@ class Payment(models.Model):
 
     def __str__(self):
         return f"Payment {self.id} [{self.status}] {self.amount} {self.currency}"
+
+
+class PromoCode(models.Model):
+    class DiscountType(models.TextChoices):
+        PERCENT = "percent", "Pourcentage"
+        FIXED   = "fixed",   "Montant fixe"
+
+    code           = models.CharField(max_length=20, unique=True, db_index=True)
+    discount_type  = models.CharField(max_length=10, choices=DiscountType.choices)
+    discount_value = models.DecimalField(max_digits=8, decimal_places=2)
+    max_uses       = models.IntegerField(default=1)
+    used_count     = models.IntegerField(default=0)
+    expires_at     = models.DateTimeField()
+    is_active      = models.BooleanField(default=True)
+    created_at     = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "promo_codes"
+
+    @property
+    def is_valid(self):
+        return (
+            self.is_active
+            and self.used_count < self.max_uses
+            and self.expires_at > timezone.now()
+        )
+
+    def apply(self, amount):
+        """Return discounted amount (Decimal)."""
+        from decimal import Decimal
+        if self.discount_type == self.DiscountType.PERCENT:
+            discount = amount * (Decimal(str(self.discount_value)) / Decimal("100"))
+        else:
+            discount = Decimal(str(self.discount_value))
+        return max(amount - discount, Decimal("0"))
+
+    def __str__(self):
+        return f"{self.code} ({self.discount_value}{'%' if self.discount_type == 'percent' else '€'})"

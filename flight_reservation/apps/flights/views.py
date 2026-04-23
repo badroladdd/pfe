@@ -27,14 +27,23 @@ class FlightSearchView(APIView):
         cabin_class = request.query_params.get("travel_class", "economy").lower()
 
         try:
-            adults = int(request.query_params.get("adults", 1))
+            adults   = int(request.query_params.get("adults", 1))
             children = int(request.query_params.get("children", 0))
-            infants = int(request.query_params.get("infants", 0))
+            infants  = int(request.query_params.get("infants", 0))
         except (ValueError, TypeError):
             return Response(
                 {"detail": "adults, children, and infants must be integers."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        # children_ages: comma-separated ages e.g. "5,8"
+        raw_ages = request.query_params.get("children_ages", "")
+        children_ages = []
+        if raw_ages:
+            try:
+                children_ages = [int(a) for a in raw_ages.split(",") if a.strip()]
+            except ValueError:
+                pass
 
         if not origin or not destination or not departure_date:
             return Response(
@@ -54,9 +63,16 @@ class FlightSearchView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        child_passengers = []
+        for i in range(children):
+            pax = {"type": "child"}
+            if i < len(children_ages):
+                pax["age"] = children_ages[i]
+            child_passengers.append(pax)
+
         passengers = (
             [{"type": "adult"}] * adults
-            + [{"type": "child"}] * children
+            + child_passengers
             + [{"type": "infant_without_seat"}] * infants
         )
 
@@ -116,6 +132,42 @@ def _attach_summary(offer: dict) -> dict:
         "return":       return_info,
     }
     return offer
+
+
+class AirportSearchView(APIView):
+    """GET /api/v1/airports/?query=paris — proxy to Duffel airport search."""
+
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        query = request.query_params.get("query", "").strip()
+        if len(query) < 2:
+            return Response({"data": []})
+        places = duffel.search_airports(query)
+        results = []
+        seen = set()
+
+        def _add(a):
+            iata = a.get("iata_code", "")
+            if not iata or iata in seen:
+                return
+            seen.add(iata)
+            results.append({
+                "iata":    iata,
+                "name":    a.get("name", ""),
+                "city":    a.get("city_name", ""),
+                "country": a.get("iata_country_code", ""),
+            })
+
+        for p in places:
+            if p.get("type") == "city":
+                # expand nested airports
+                for a in p.get("airports", []):
+                    _add(a)
+            elif p.get("type") == "airport":
+                _add(p)
+
+        return Response({"data": results})
 
 
 class ConfirmPriceView(APIView):

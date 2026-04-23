@@ -2,7 +2,7 @@ from datetime import date
 
 from rest_framework import serializers
 
-from apps.reservations.models import Passenger, Reservation
+from apps.reservations.models import Passenger, PromoCode, Reservation
 
 
 # ─────────────────────────────────────────────
@@ -182,3 +182,32 @@ class ReservationOutputSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
+
+
+# ─────────────────────────────────────────────
+#  PromoCode serializers
+# ─────────────────────────────────────────────
+
+class PromoCodeInputSerializer(serializers.Serializer):
+    code           = serializers.CharField(max_length=20)
+    discount_type  = serializers.ChoiceField(choices=["percent", "fixed"])
+    discount_value = serializers.DecimalField(max_digits=8, decimal_places=2)
+    max_uses       = serializers.IntegerField(min_value=1, default=1)
+    expires_at     = serializers.DateTimeField()
+
+
+class PromoCodeOutputSerializer(serializers.ModelSerializer):
+    is_valid = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = PromoCode
+        fields = [
+            "id", "code", "discount_type", "discount_value",
+            "max_uses", "used_count", "expires_at", "is_active",
+            "is_valid", "created_at",
+        ]
+
+
+class ValidatePromoSerializer(serializers.Serializer):
+    code   = serializers.CharField(max_length=20)
+    amount = serializers.DecimalField(max_digits=12, decimal_places=2)

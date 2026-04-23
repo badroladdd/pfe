@@ -25,6 +25,10 @@ class _PassengerFormScreenState extends State<PassengerFormScreen> {
   final _api = ApiClient();
   bool _loading = false;
 
+  final _promoCtrl       = TextEditingController();
+  bool  _promoLoading    = false;
+  Map<String, dynamic>? _promoResult;
+
   final _firstNameCtrl       = TextEditingController();
   final _lastNameCtrl        = TextEditingController();
   final _dobCtrl             = TextEditingController();
@@ -138,6 +142,21 @@ class _PassengerFormScreenState extends State<PassengerFormScreen> {
     }
   }
 
+  Future<void> _applyPromo() async {
+    final code = _promoCtrl.text.trim();
+    if (code.isEmpty) return;
+    setState(() => _promoLoading = true);
+    try {
+      final result = await _api.validatePromoCode(code, widget.flight.price);
+      setState(() => _promoResult = result);
+    } catch (e) {
+      setState(() => _promoResult = null);
+      _snack('Code invalide ou expiré', Colors.red);
+    } finally {
+      setState(() => _promoLoading = false);
+    }
+  }
+
   void _snack(String msg, Color color) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(msg), backgroundColor: color, duration: const Duration(seconds: 3)),
@@ -168,8 +187,21 @@ class _PassengerFormScreenState extends State<PassengerFormScreen> {
                 children: [
                   Text('${widget.flight.from} → ${widget.flight.to}',
                       style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                  Text('${widget.flight.price.toStringAsFixed(0)} €',
-                      style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue.shade700)),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      if (_promoResult != null)
+                        Text('${widget.flight.price.toStringAsFixed(0)} €',
+                            style: const TextStyle(
+                                fontSize: 12, decoration: TextDecoration.lineThrough, color: Colors.grey)),
+                      Text(
+                        _promoResult != null
+                            ? '${_promoResult!['discounted_amount']} €'
+                            : '${widget.flight.price.toStringAsFixed(0)} €',
+                        style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue.shade700),
+                      ),
+                    ],
+                  ),
                 ],
               ),
             ),
@@ -220,6 +252,64 @@ class _PassengerFormScreenState extends State<PassengerFormScreen> {
               ),
             ),
             _field(_passportCountryCtrl, "Pays d'émission (ex: DZ)", Icons.flag_outlined),
+            const Divider(height: 32),
+            const Text('Code promo', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _promoCtrl,
+                    textCapitalization: TextCapitalization.characters,
+                    decoration: InputDecoration(
+                      labelText: 'Code promo (optionnel)',
+                      prefixIcon: const Icon(Icons.local_offer_outlined, color: Colors.blue),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      filled: true,
+                      fillColor: Colors.white,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                ElevatedButton(
+                  onPressed: _promoLoading ? null : _applyPromo,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.indigo,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+                  ),
+                  child: _promoLoading
+                      ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                      : const Text('Appliquer', style: TextStyle(color: Colors.white)),
+                ),
+              ],
+            ),
+            if (_promoResult != null) ...[
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.green.shade50,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.green.shade200),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.check_circle, color: Colors.green),
+                    const SizedBox(width: 10),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Code "${_promoResult!['code']}" appliqué !',
+                            style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
+                        Text('Économie : ${_promoResult!['saved']} € → ${_promoResult!['discounted_amount']} €',
+                            style: const TextStyle(fontSize: 13)),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: 28),
             SizedBox(
               width: double.infinity,

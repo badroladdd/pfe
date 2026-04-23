@@ -232,11 +232,12 @@ class ApiClient {
     int adults        = 1,
     int children      = 0,
     int infants       = 0,
-    String travelClass = 'ECONOMY', // ECONOMY | PREMIUM_ECONOMY | BUSINESS | FIRST
+    List<int> childrenAges = const [],
+    String travelClass = 'ECONOMY',
     bool nonStop      = false,
     String currency   = 'EUR',
     int maxResults    = 20,
-    String? returnDate, // YYYY-MM-DD, for round-trip search
+    String? returnDate,
   }) async {
     final query = <String, String>{
       'origin':         origin.toUpperCase(),
@@ -251,6 +252,9 @@ class ApiClient {
       'max_results':    maxResults.toString(),
     };
     if (returnDate != null) query['return_date'] = returnDate;
+    if (childrenAges.isNotEmpty) {
+      query['children_ages'] = childrenAges.join(',');
+    }
 
     final data = await _get('/flights/search/', queryParams: query, requiresAuth: false);
     // Response envelope: { success, count, results: [...] }
@@ -414,6 +418,43 @@ class ApiClient {
     };
     final data = await _post('/agent/reservations/', body: body);
     return data['data'] as Map<String, dynamic>;
+  }
+
+  // ══════════════════════════════════════════════════════════════════
+  // AIRPORTS
+  // ══════════════════════════════════════════════════════════════════
+
+  Future<List<Map<String, dynamic>>> searchAirports(String query) async {
+    final data = await _get('/airports/', queryParams: {'query': query}, requiresAuth: false);
+    return (data['data'] as List).cast<Map<String, dynamic>>();
+  }
+
+  // ══════════════════════════════════════════════════════════════════
+  // PROMO CODES
+  // ══════════════════════════════════════════════════════════════════
+
+  Future<Map<String, dynamic>> validatePromoCode(String code, double amount) async {
+    final data = await _post('/promo-codes/validate/',
+        body: {'code': code, 'amount': amount.toStringAsFixed(2)});
+    return data;
+  }
+
+  Future<List<Map<String, dynamic>>> listPromoCodes() async {
+    final data = await _get('/admin/promo-codes/');
+    return (data['results'] as List).cast<Map<String, dynamic>>();
+  }
+
+  Future<Map<String, dynamic>> createPromoCode(Map<String, dynamic> body) async {
+    final data = await _post('/admin/promo-codes/', body: body);
+    return data['data'] as Map<String, dynamic>;
+  }
+
+  Future<void> togglePromoCode(int id, bool isActive) async {
+    await _patch('/admin/promo-codes/$id/', body: {'is_active': isActive});
+  }
+
+  Future<void> deletePromoCode(int id) async {
+    await _delete('/admin/promo-codes/$id/');
   }
 
   /// Cancel a confirmed reservation. Syncs cancellation with Duffel.

@@ -7,10 +7,13 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.reservations import services
-from apps.reservations.models import Reservation
+from apps.reservations.models import PromoCode, Reservation
 from apps.reservations.serializers import (
     CreateReservationSerializer,
+    PromoCodeInputSerializer,
+    PromoCodeOutputSerializer,
     ReservationOutputSerializer,
+    ValidatePromoSerializer,
 )
 from apps.users.models import User
 from core.permissions import IsOwnerOrStaff
@@ -284,6 +287,107 @@ class AdminStatsView(APIView):
             "cancelled_reservations":   agg["cancelled"] or 0,
             "pending_reservations":     agg["pending"] or 0,
             "total_revenue":            str(agg["revenue"] or "0.00"),
+        })
+
+
+class AdminPromoCodesView(APIView):
+    """
+    GET  /api/v1/admin/promo-codes/  — list all promo codes (admin)
+    POST /api/v1/admin/promo-codes/  — create a promo code (admin)
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def _check_admin(self, request):
+        if request.user.role != "admin":
+            return Response({"detail": "Admin access required."}, status=status.HTTP_403_FORBIDDEN)
+        return None
+
+    def get(self, request):
+        if err := self._check_admin(request):
+            return err
+        qs = PromoCode.objects.order_by("-created_at")
+        return Response({"results": PromoCodeOutputSerializer(qs, many=True).data})
+
+    def post(self, request):
+        if err := self._check_admin(request):
+            return err
+        serializer = PromoCodeInputSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        d = serializer.validated_data
+        promo = PromoCode.objects.create(
+            code=d["code"].upper(),
+            discount_type=d["discount_type"],
+            discount_value=d["discount_value"],
+            max_uses=d["max_uses"],
+            expires_at=d["expires_at"],
+        )
+        return Response({"data": PromoCodeOutputSerializer(promo).data}, status=status.HTTP_201_CREATED)
+
+
+class AdminPromoCodeDetailView(APIView):
+    """
+    PATCH  /api/v1/admin/promo-codes/{id}/  — toggle active / update
+    DELETE /api/v1/admin/promo-codes/{id}/  — delete
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def _get_promo(self, pk):
+        try:
+            return PromoCode.objects.get(pk=pk)
+        except PromoCode.DoesNotExist:
+            return None
+
+    def patch(self, request, pk):
+        if request.user.role != "admin":
+            return Response({"detail": "Admin access required."}, status=status.HTTP_403_FORBIDDEN)
+        promo = self._get_promo(pk)
+        if not promo:
+            return Response({"detail": "Code promo introuvable."}, status=status.HTTP_404_NOT_FOUND)
+        for field in ("is_active", "max_uses", "expires_at"):
+            if field in request.data:
+                setattr(promo, field, request.data[field])
+        promo.save()
+        return Response({"data": PromoCodeOutputSerializer(promo).data})
+
+    def delete(self, request, pk):
+        if request.user.role != "admin":
+            return Response({"detail": "Admin access required."}, status=status.HTTP_403_FORBIDDEN)
+        promo = self._get_promo(pk)
+        if not promo:
+            return Response({"detail": "Code promo introuvable."}, status=status.HTTP_404_NOT_FOUND)
+        promo.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class ValidatePromoCodeView(APIView):
+    """POST /api/v1/promo-codes/validate/ — validate a code and return the discounted amount."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = ValidatePromoSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        code   = serializer.validated_data["code"].upper()
+        amount = serializer.validated_data["amount"]
+
+        try:
+            promo = PromoCode.objects.get(code=code)
+        except PromoCode.DoesNotExist:
+            return Response({"detail": "Code promo invalide."}, status=status.HTTP_404_NOT_FOUND)
+
+        if not promo.is_valid:
+            return Response({"detail": "Code promo expiré ou épuisé."}, status=status.HTTP_400_BAD_REQUEST)
+
+        discounted = promo.apply(amount)
+        return Response({
+            "code":           promo.code,
+            "discount_type":  promo.discount_type,
+            "discount_value": str(promo.discount_value),
+            "original_amount": str(amount),
+            "discounted_amount": str(discounted),
+            "saved": str(amount - discounted),
         })
 
 

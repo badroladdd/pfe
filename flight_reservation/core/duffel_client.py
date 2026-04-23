@@ -85,6 +85,12 @@ class DuffelClient:
         response = self._post("/air/offer_requests", payload)
         return response["data"]
 
+    def search_airports(self, query: str) -> list:
+        """GET /places/suggestions?query=<query> — autocomplete airports by name, city or IATA."""
+        logger.info("Duffel search_airports: query=%s", query)
+        response = self._get(f"/places/suggestions?query={query}&locale=fr-FR")
+        return response.get("data", [])
+
     def get_offer(self, offer_id: str) -> dict:
         """
         Validate that an offer is still live before attempting to book.

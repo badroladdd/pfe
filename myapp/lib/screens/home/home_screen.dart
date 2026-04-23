@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:myapp/api.dart';
 import 'package:myapp/models/flight.dart';
 import 'package:myapp/screens/flights/flights_result_screen.dart';
+import 'package:myapp/widgets/airport_search_field.dart';
 
 class HomeScreen extends StatefulWidget {
   final VoidCallback onBookingCreated;
@@ -17,8 +18,19 @@ class _HomeScreenState extends State<HomeScreen> {
   List<Map<String, String>> routes = [];
   String _returnDate = '';
 
-  String passengers = '1 Passager';
+  int _adults   = 1;
+  int _children = 0;
+  int _infants  = 0;
+  List<int> _childrenAges = [];
   String flightClass = 'Economique';
+
+  String get _passengersLabel {
+    final parts = <String>[];
+    if (_adults   > 0) parts.add('$_adults adulte${_adults > 1 ? 's' : ''}');
+    if (_children > 0) parts.add('$_children enfant${_children > 1 ? 's' : ''}');
+    if (_infants  > 0) parts.add('$_infants bébé${_infants > 1 ? 's' : ''}');
+    return parts.isEmpty ? '1 adulte' : parts.join(', ');
+  }
   bool isDirect = false;
   bool hasBaggage = false;
   bool isRefundable = false;
@@ -112,7 +124,10 @@ class _HomeScreenState extends State<HomeScreen> {
         origin: origin,
         destination: destination,
         departureDate: formattedDate,
-        adults: int.parse(passengers.split(' ')[0]),
+        adults: _adults,
+        children: _children,
+        infants: _infants,
+        childrenAges: _childrenAges,
         travelClass: _toTravelClass(flightClass),
         nonStop: isDirect,
         returnDate: formattedReturnDate,
@@ -126,7 +141,7 @@ class _HomeScreenState extends State<HomeScreen> {
           from: summary['origin']?.toString() ?? '',
           to: summary['destination']?.toString() ?? '',
           date: (summary['departure_at']?.toString() ?? '').split('T')[0],
-          passengers: passengers.split(' ')[0],
+          passengers: _adults.toString(),
           flightClass: flightClass,
           isDirect: (summary['stops'] ?? 1) == 0,
           hasBaggage: hasBaggage,
@@ -152,7 +167,7 @@ class _HomeScreenState extends State<HomeScreen> {
           builder: (context) => FlightsResultScreen(
             flights: foundFlights,
             rawOffers: validOffers,
-            passengersCount: int.parse(passengers.split(' ')[0]),
+            passengersCount: _adults + _children + _infants,
             onBookingCreated: widget.onBookingCreated,
           ),
         ),
@@ -167,7 +182,17 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
+    return Stack(
+      children: [
+        // World map background
+        Positioned.fill(
+          child: Image.asset(
+            'assets/images/download.jpg',
+            fit: BoxFit.cover,
+            opacity: const AlwaysStoppedAnimation(0.15),
+          ),
+        ),
+        SingleChildScrollView(
       padding: const EdgeInsets.all(16.0),
       child: Column(
         children: [
@@ -182,6 +207,8 @@ class _HomeScreenState extends State<HomeScreen> {
           _buildSearchButton(),
         ],
       ),
+        ),
+      ],
     );
   }
 
@@ -327,33 +354,10 @@ class _HomeScreenState extends State<HomeScreen> {
             onChanged("${pickedDate.day}/${pickedDate.month}/${pickedDate.year}");
           }
         } else {
-          _showEditDialog(label, value, onChanged);
+          final iata = await showAirportSearch(context, current: value);
+          if (iata != null) onChanged(iata);
         }
       },
-    );
-  }
-
-  void _showEditDialog(String label, String currentValue, Function(String) onChanged) {
-    final controller = TextEditingController(text: currentValue);
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Modifier $label'),
-        content: TextField(
-          controller: controller,
-          decoration: InputDecoration(hintText: 'Entrez $label'),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler')),
-          TextButton(
-            onPressed: () {
-              onChanged(controller.text);
-              Navigator.pop(context);
-            },
-            child: const Text('OK'),
-          ),
-        ],
-      ),
     );
   }
 
@@ -364,7 +368,7 @@ class _HomeScreenState extends State<HomeScreen> {
           child: ListTile(
             leading: Icon(Icons.person_outline, color: Colors.grey[400]),
             title: const Text('Passagers', style: TextStyle(fontSize: 11, color: Colors.grey)),
-            subtitle: Text(passengers, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+            subtitle: Text(_passengersLabel, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
             onTap: _showPassengerDialog,
           ),
         ),
@@ -382,23 +386,163 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _showPassengerDialog() {
+    int adults   = _adults;
+    int children = _children;
+    int infants  = _infants;
+    List<int> childrenAges = List.from(_childrenAges);
+
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Nombre de passagers'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: ['1 Passager', '2 Passagers', '3 Passagers', '4 Passagers']
-              .map((v) => ListTile(
-                    title: Text(v),
-                    onTap: () {
-                      setState(() => passengers = v);
-                      Navigator.pop(context);
-                    },
-                  ))
-              .toList(),
-        ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlg) {
+          void changeChildren(int delta) {
+            final next = (children + delta).clamp(0, 8);
+            if (next > children) {
+              // added a child — ask age
+              showDialog<int>(
+                context: ctx,
+                builder: (_) {
+                  int selectedAge = 5;
+                  return StatefulBuilder(
+                    builder: (ageCtx, setAge) => AlertDialog(
+                      title: const Text('Âge de l\'enfant'),
+                      content: SizedBox(
+                        height: 160,
+                        child: Column(
+                          children: [
+                            const Text('Âge au moment du voyage',
+                                style: TextStyle(color: Colors.grey, fontSize: 13)),
+                            const SizedBox(height: 12),
+                            DropdownButton<int>(
+                              value: selectedAge,
+                              isExpanded: true,
+                              items: List.generate(10, (i) => i + 2)
+                                  .map((age) => DropdownMenuItem(
+                                        value: age,
+                                        child: Text('$age ans'),
+                                      ))
+                                  .toList(),
+                              onChanged: (v) => setAge(() => selectedAge = v!),
+                            ),
+                          ],
+                        ),
+                      ),
+                      actions: [
+                        TextButton(
+                            onPressed: () => Navigator.pop(ageCtx),
+                            child: const Text('Annuler')),
+                        ElevatedButton(
+                          onPressed: () => Navigator.pop(ageCtx, selectedAge),
+                          child: const Text('Confirmer'),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ).then((age) {
+                if (age != null) {
+                  setDlg(() {
+                    children = next;
+                    childrenAges.add(age);
+                  });
+                }
+              });
+            } else {
+              setDlg(() {
+                children = next;
+                if (childrenAges.isNotEmpty) childrenAges.removeLast();
+              });
+            }
+          }
+
+          return AlertDialog(
+            title: const Text('Passagers'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _passengerRow('Adultes', '12 ans et +', adults,
+                    onMinus: adults > 1 ? () => setDlg(() => adults--) : null,
+                    onPlus: adults < 9  ? () => setDlg(() => adults++) : null),
+                const Divider(height: 24),
+                _passengerRow('Enfants', '2 – 11 ans', children,
+                    onMinus: children > 0 ? () => changeChildren(-1) : null,
+                    onPlus: children < 8  ? () => changeChildren(1)  : null),
+                if (childrenAges.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 6,
+                    children: childrenAges.asMap().entries.map((e) =>
+                      Chip(
+                        label: Text('Enfant ${e.key + 1}: ${e.value} ans',
+                            style: const TextStyle(fontSize: 12)),
+                        backgroundColor: Colors.blue.shade50,
+                      ),
+                    ).toList(),
+                  ),
+                ],
+                const Divider(height: 24),
+                _passengerRow('Bébés', '0 – 1 an', infants,
+                    onMinus: infants > 0        ? () => setDlg(() => infants--) : null,
+                    onPlus: infants < adults     ? () => setDlg(() => infants++) : null),
+                if (infants >= adults)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 6),
+                    child: Text('Max 1 bébé par adulte',
+                        style: TextStyle(fontSize: 11, color: Colors.orange)),
+                  ),
+              ],
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Annuler')),
+              ElevatedButton(
+                onPressed: () {
+                  setState(() {
+                    _adults       = adults;
+                    _children     = children;
+                    _infants      = infants;
+                    _childrenAges = childrenAges;
+                  });
+                  Navigator.pop(ctx);
+                },
+                child: const Text('Confirmer'),
+              ),
+            ],
+          );
+        },
       ),
+    );
+  }
+
+  Widget _passengerRow(String title, String subtitle, int count,
+      {VoidCallback? onMinus, VoidCallback? onPlus}) {
+    return Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+              Text(subtitle, style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
+            ],
+          ),
+        ),
+        IconButton(
+          onPressed: onMinus,
+          icon: Icon(Icons.remove_circle_outline,
+              color: onMinus != null ? Colors.blue : Colors.grey.shade300),
+        ),
+        SizedBox(
+          width: 28,
+          child: Text('$count',
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+        ),
+        IconButton(
+          onPressed: onPlus,
+          icon: Icon(Icons.add_circle_outline,
+              color: onPlus != null ? Colors.blue : Colors.grey.shade300),
+        ),
+      ],
     );
   }
 
