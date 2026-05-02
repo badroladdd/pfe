@@ -44,6 +44,138 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  void _showEditProfile() {
+    final firstCtrl = TextEditingController(text: _profile!['first_name'] ?? '');
+    final lastCtrl  = TextEditingController(text: _profile!['last_name']  ?? '');
+    final phoneCtrl = TextEditingController(text: _profile!['phone']      ?? '');
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Modifier mes informations'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: firstCtrl,
+                decoration: const InputDecoration(labelText: 'Prénom'),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: lastCtrl,
+                decoration: const InputDecoration(labelText: 'Nom'),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: phoneCtrl,
+                keyboardType: TextInputType.phone,
+                decoration: const InputDecoration(labelText: 'Téléphone'),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Annuler')),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              try {
+                await _api.updateProfile(
+                  firstName: firstCtrl.text.trim(),
+                  lastName:  lastCtrl.text.trim(),
+                  phone:     phoneCtrl.text.trim(),
+                );
+                _loadProfile();
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Informations mises à jour'), backgroundColor: Colors.green),
+                  );
+                }
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
+                  );
+                }
+              }
+            },
+            child: const Text('Enregistrer'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showChangePassword() {
+    final oldCtrl  = TextEditingController();
+    final newCtrl  = TextEditingController();
+    final confCtrl = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Changer le mot de passe'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: oldCtrl,
+                obscureText: true,
+                decoration: const InputDecoration(labelText: 'Ancien mot de passe'),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: newCtrl,
+                obscureText: true,
+                decoration: const InputDecoration(labelText: 'Nouveau mot de passe'),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: confCtrl,
+                obscureText: true,
+                decoration: const InputDecoration(labelText: 'Confirmer le nouveau mot de passe'),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Annuler')),
+          ElevatedButton(
+            onPressed: () async {
+              if (newCtrl.text != confCtrl.text) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Les mots de passe ne correspondent pas'), backgroundColor: Colors.red),
+                );
+                return;
+              }
+              Navigator.pop(ctx);
+              try {
+                await _api.changePassword(
+                  oldPassword: oldCtrl.text,
+                  newPassword: newCtrl.text,
+                );
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Mot de passe modifié avec succès'), backgroundColor: Colors.green),
+                  );
+                }
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
+                  );
+                }
+              }
+            },
+            child: const Text('Confirmer'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _logout() async {
     await _api.logout();
     if (!mounted) return;
@@ -125,10 +257,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
           ),
           const SizedBox(height: 24),
-          if (_loggedIn)
+          if (_loggedIn) ...[
+            _buildProfileItem(context, Icons.edit_outlined, 'Modifier mes informations',
+                onTap: _showEditProfile),
+            _buildProfileItem(context, Icons.lock_outline, 'Changer le mot de passe',
+                onTap: _showChangePassword),
             _buildProfileItem(context, Icons.logout, 'Se déconnecter',
-                onTap: _logout, color: Colors.red)
-          else
+                onTap: _logout, color: Colors.red),
+          ] else
             _buildProfileItem(context, Icons.login, 'Se connecter', onTap: () {
               Navigator.push(context,
                   MaterialPageRoute(builder: (_) => const LoginScreen()))

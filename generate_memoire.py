@@ -184,6 +184,7 @@ doc.add_paragraph()
 doc.add_paragraph()
 center("CONCEPTION ET DEVELOPPEMENT D'UNE APPLICATION MOBILE", size=14, bold=True)
 center("DE RESERVATION DES BILLETS D'AVION", size=14, bold=True)
+center("La realisation d'un module pour la recommandation de destination de voyage", size=12, bold=True)
 doc.add_paragraph()
 center("Backend Django  |  Base de Donnees MySQL  |  API Duffel", size=11)
 doc.add_paragraph()
@@ -569,8 +570,8 @@ para("L'administrateur cree des codes promo caracterises par un code unique, un 
 
 heading("V. Algorithme A priori — Systeme de Recommandation", 2)
 heading("V.1. Presentation de l'algorithme A priori", 3)
-para("L'algorithme A priori est un algorithme de fouille de donnees (data mining) propose par Agrawal et Srikant en 1994. Il permet d'extraire des regles d'association a partir d'un ensemble de transactions, c'est-a-dire de decouvrir des relations entre des elements qui apparaissent frequemment ensemble dans les donnees.")
-para("Dans notre application, nous appliquons cet algorithme sur l'historique des reservations confirmees afin de generer des recommandations intelligentes de destinations pour les utilisateurs. Ce systeme de recommandation personnalise l'experience de recherche en suggerant automatiquement les destinations les plus pertinentes en fonction des habitudes de voyage de l'ensemble des clients.")
+para("L'algorithme A priori est un algorithme de fouille de donnees (data mining) propose par Agrawal et Srikant en 1994 [5]. Il permet d'extraire des regles d'association a partir d'un ensemble de transactions, c'est-a-dire de decouvrir des relations entre des elements qui apparaissent frequemment ensemble dans les donnees. Cet algorithme est largement documente dans la litterature du domaine, notamment dans l'ouvrage de Han, Kamber et Pei [6].")
+para("Dans notre application, nous appliquons cet algorithme sur l'historique des reservations confirmees afin de generer des recommandations intelligentes de destinations pour les utilisateurs. L'implementation est realisee en Python grace a la bibliotheque MLxtend [12], qui fournit une implementation optimisee de l'algorithme A priori. Ce systeme de recommandation personnalise l'experience de recherche en suggerant automatiquement les destinations les plus pertinentes en fonction des habitudes de voyage de l'ensemble des clients.")
 
 heading("V.2. Concepts fondamentaux", 3)
 para("L'algorithme repose sur trois metriques essentielles :")
