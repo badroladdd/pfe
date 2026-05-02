@@ -3,65 +3,71 @@ import matplotlib.patches as mpatches
 from matplotlib.patches import FancyArrowPatch
 import matplotlib.patheffects as pe
 
-fig, ax = plt.subplots(1, 1, figsize=(24, 32))
+plt.rcParams.update({
+    'font.family': 'DejaVu Sans',
+    'font.size': 10,
+    'figure.dpi': 300,
+})
+
+fig, ax = plt.subplots(1, 1, figsize=(32, 42))
 ax.set_xlim(0, 24)
 ax.set_ylim(0, 32)
 ax.axis('off')
-fig.patch.set_facecolor('#FAFAFA')
+fig.patch.set_facecolor('#FFFFFF')
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 def draw_class(ax, x, y, w, title, attributes, methods=None,
                abstract=False, color='#DDEEFF', title_color='#1565C0'):
     methods = methods or []
-    row_h = 0.38
-    title_h = 0.55
-    sep = 0.08
+    row_h = 0.42
+    title_h = 0.65
+    sep = 0.10
     attr_h = len(attributes) * row_h + sep * 2
     meth_h = len(methods) * row_h + sep * 2 if methods else 0
     total_h = title_h + attr_h + meth_h
 
     # shadow
-    shadow = mpatches.FancyBboxPatch((x + 0.08, y - total_h - 0.08), w, total_h,
-        boxstyle="round,pad=0.05", linewidth=0, facecolor='#CCCCCC', zorder=1)
+    shadow = mpatches.FancyBboxPatch((x + 0.06, y - total_h - 0.06), w, total_h,
+        boxstyle="round,pad=0.04", linewidth=0, facecolor='#CCCCCC', zorder=1)
     ax.add_patch(shadow)
 
     # main box
     box = mpatches.FancyBboxPatch((x, y - total_h), w, total_h,
-        boxstyle="round,pad=0.05", linewidth=1.5,
+        boxstyle="round,pad=0.04", linewidth=2.0,
         edgecolor='#1565C0', facecolor='white', zorder=2)
     ax.add_patch(box)
 
     # title bar
     title_bar = mpatches.FancyBboxPatch((x, y - title_h), w, title_h,
-        boxstyle="round,pad=0.05", linewidth=0, facecolor=color, zorder=3)
+        boxstyle="round,pad=0.04", linewidth=0, facecolor=color, zorder=3)
     ax.add_patch(title_bar)
 
     # title text
     prefix = '<<Abstract>>\n' if abstract else ''
     ax.text(x + w/2, y - title_h/2, prefix + title,
-            ha='center', va='center', fontsize=8.5, fontweight='bold',
-            color='white', zorder=4, linespacing=1.3)
+            ha='center', va='center', fontsize=9.5, fontweight='bold',
+            color='white', zorder=4, linespacing=1.4)
 
     # divider after title
-    ax.plot([x, x+w], [y - title_h, y - title_h], color='#1565C0', lw=1, zorder=4)
+    ax.plot([x, x+w], [y - title_h, y - title_h], color='#1565C0', lw=1.2, zorder=4)
 
     # attributes
     ay = y - title_h - sep
     for attr in attributes:
         ay -= row_h
-        ax.text(x + 0.15, ay + row_h/2, attr, ha='left', va='center',
-                fontsize=7.2, color='#212121', zorder=4, family='monospace')
+        ax.text(x + 0.18, ay + row_h/2, attr, ha='left', va='center',
+                fontsize=8.0, color='#212121', zorder=4, family='monospace')
 
     # divider before methods
     if methods:
         div_y = y - title_h - attr_h
-        ax.plot([x, x+w], [div_y, div_y], color='#90CAF9', lw=0.8, linestyle='--', zorder=4)
+        ax.plot([x, x+w], [div_y, div_y], color='#90CAF9', lw=1.0, linestyle='--', zorder=4)
         my = div_y - sep
         for m in methods:
             my -= row_h
-            ax.text(x + 0.15, my + row_h/2, m, ha='left', va='center',
-                    fontsize=7.2, color='#1A237E', zorder=4, family='monospace',
+            ax.text(x + 0.18, my + row_h/2, m, ha='left', va='center',
+                    fontsize=8.0, color='#1A237E', zorder=4, family='monospace',
                     style='italic')
 
     # return center-bottom point
@@ -246,7 +252,7 @@ cardinality(ax, 13.6, 9.4, 'N')
 
 # ── title ──────────────────────────────────────────────────────────────────────
 ax.text(12, 31.8, "Diagramme de Classes — Système de Réservation de Vols",
-        ha='center', va='center', fontsize=13, fontweight='bold', color='#0D47A1')
+        ha='center', va='center', fontsize=15, fontweight='bold', color='#0D47A1')
 
 # legend
 legend_x, legend_y = 0.3, 5.5
@@ -262,7 +268,8 @@ for i, (col, lbl) in enumerate([
         arrowprops=dict(arrowstyle='-|>' if i==0 else '->', color=col, lw=1.5, mutation_scale=12))
     ax.text(legend_x + 2.2, yy, lbl, va='center', fontsize=7.5, color='#212121')
 
-plt.tight_layout()
+plt.tight_layout(pad=1.0)
 plt.savefig('c:/Users/tassili/Desktop/pfe/diagramme_classes.png',
-            dpi=180, bbox_inches='tight', facecolor='#FAFAFA')
+            dpi=300, bbox_inches='tight', facecolor='#FFFFFF',
+            metadata={'Title': 'Diagramme de Classes'})
 print("Saved: diagramme_classes.png")

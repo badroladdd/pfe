@@ -89,12 +89,18 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             child: Icon(icon, color: color, size: small ? 20 : 28),
           ),
           SizedBox(width: small ? 10 : 16),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(label, style: TextStyle(color: Colors.grey.shade600, fontSize: small ? 11 : 13)),
-              Text(value, style: TextStyle(fontWeight: FontWeight.bold, fontSize: small ? 18 : 26)),
-            ],
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label,
+                    style: TextStyle(color: Colors.grey.shade600, fontSize: small ? 11 : 13),
+                    overflow: TextOverflow.ellipsis),
+                Text(value,
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: small ? 18 : 26),
+                    overflow: TextOverflow.ellipsis),
+              ],
+            ),
           ),
         ],
       ),

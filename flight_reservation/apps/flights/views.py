@@ -190,3 +190,25 @@ class ConfirmPriceView(APIView):
 
         offer = duffel.get_offer(offer_id)
         return Response({"data": offer})
+
+
+class RecommendationsView(APIView):
+    """
+    GET /api/v1/recommendations/?origin=ALG
+    Applique l'algorithme A priori sur les reservations confirmees
+    et retourne les destinations les plus souvent associees a l'origine.
+    """
+
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        origin = request.query_params.get("origin", "").strip().upper()
+        if not origin or len(origin) != 3:
+            return Response(
+                {"detail": "origin (code IATA 3 lettres) est requis."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        from apps.flights.apriori_service import get_recommendations
+        results = get_recommendations(origin)
+        return Response({"origin": origin, "results": results})

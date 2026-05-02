@@ -56,7 +56,7 @@ class _PassengerFormScreenState extends State<PassengerFormScreen> {
     passportCountry:  _passportCountryCtrl.text.trim().toUpperCase(),
   );
 
-  Future<void> _submit({bool acceptPriceChange = false}) async {
+  Future<void> _submit({bool acceptPriceChange = false, String paymentMethod = 'cash'}) async {
     if (_firstNameCtrl.text.isEmpty || _lastNameCtrl.text.isEmpty ||
         _dobCtrl.text.isEmpty || _emailCtrl.text.isEmpty) {
       _snack('Veuillez remplir tous les champs obligatoires.', Colors.red);
@@ -73,27 +73,39 @@ class _PassengerFormScreenState extends State<PassengerFormScreen> {
 
     setState(() => _loading = true);
     try {
+      // Si code promo appliqué, remplacer total_amount + transmettre le code
+      final offer = Map<String, dynamic>.from(widget.rawOffer);
+      final promoCode = _promoResult != null ? (_promoResult!['code'] as String?) : null;
+      if (_promoResult != null) {
+        offer['total_amount'] = _promoResult!['discounted_amount'];
+      }
+
       if (widget.forUserId != null) {
         await _api.createReservationForClient(
-          flightOffer: widget.rawOffer,
+          flightOffer: offer,
           passengers: [_buildPassenger().toMap()],
           forUserId: widget.forUserId,
+          paymentMethod: paymentMethod,
+          promoCode: promoCode,
         );
       } else {
         await _api.createReservation(
-          flightOffer: widget.rawOffer,
+          flightOffer: offer,
           passengers: [_buildPassenger().toMap()],
           acceptPriceChange: acceptPriceChange,
+          paymentMethod: paymentMethod,
+          promoCode: promoCode,
         );
       }
 
       widget.onBookingCreated();
 
       if (!mounted) return;
-      _snack(
-        'Demande envoyée ! Votre réservation est en attente de confirmation par un agent.',
-        Colors.orange,
-      );
+      if (paymentMethod == 'cib') {
+        _snack('Réservation confirmée ! Paiement CIB / Edahabia accepté.', Colors.green);
+      } else {
+        _snack('Demande envoyée ! Paiement ultérieurement — en attente de confirmation agent.', Colors.orange);
+      }
       Navigator.popUntil(context, (route) => route.isFirst);
     } on PriceChangedException catch (e) {
       setState(() => _loading = false);
@@ -311,19 +323,42 @@ class _PassengerFormScreenState extends State<PassengerFormScreen> {
               ),
             ],
             const SizedBox(height: 28),
+            const Text('Mode de paiement',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 14),
+            // Bouton 1 — Payer ultérieurement
             SizedBox(
               width: double.infinity,
               height: 54,
-              child: ElevatedButton(
-                onPressed: _loading ? null : () => _submit(),
+              child: ElevatedButton.icon(
+                onPressed: _loading ? null : () => _submit(paymentMethod: 'cash'),
+                icon: const Icon(Icons.payments_outlined, color: Colors.white),
+                label: _loading
+                    ? const CircularProgressIndicator(color: Colors.white)
+                    : const Text('Payer ultérieurement',
+                        style: TextStyle(color: Colors.white, fontSize: 15)),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blue,
+                  backgroundColor: Colors.green.shade600,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                 ),
-                child: _loading
+              ),
+            ),
+            const SizedBox(height: 12),
+            // Bouton 2 — Payer avec CIB / Edahabia
+            SizedBox(
+              width: double.infinity,
+              height: 54,
+              child: ElevatedButton.icon(
+                onPressed: _loading ? null : () => _submit(paymentMethod: 'cib'),
+                icon: const Icon(Icons.credit_card, color: Colors.white),
+                label: _loading
                     ? const CircularProgressIndicator(color: Colors.white)
-                    : const Text('Confirmer la réservation',
-                        style: TextStyle(color: Colors.white, fontSize: 16)),
+                    : const Text('Payer avec CIB / Edahabia',
+                        style: TextStyle(color: Colors.white, fontSize: 15)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF00897B),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                ),
               ),
             ),
             const SizedBox(height: 20),

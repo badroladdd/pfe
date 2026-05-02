@@ -245,16 +245,16 @@ class _PromoCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 10),
-            Row(
+            Wrap(
+              spacing: 10,
+              runSpacing: 6,
               children: [
                 _chip(
                   type == 'percent' ? '-$value%' : '-$value€',
                   Icons.local_offer_outlined,
                   Colors.blue,
                 ),
-                const SizedBox(width: 8),
                 _chip('$used / $maxUses utilisations', Icons.people_outline, Colors.orange),
-                const SizedBox(width: 8),
                 if (expiresAt != null)
                   _chip(
                     'Expire ${expiresAt.day}/${expiresAt.month}/${expiresAt.year}',

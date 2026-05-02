@@ -134,10 +134,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   MaterialPageRoute(builder: (_) => const LoginScreen()))
                 .then((_) => _loadProfile());
             }),
-          _buildProfileItem(context, Icons.help_outline, 'Modifier ou rembourser votre billet'),
-          _buildProfileItem(context, Icons.phone_outlined, 'Appelez-nous'),
-          _buildProfileItem(context, Icons.settings_outlined, 'Préférences'),
-          _buildProfileItem(context, Icons.description_outlined, "Conditions d'utilisation"),
         ],
       ),
     );

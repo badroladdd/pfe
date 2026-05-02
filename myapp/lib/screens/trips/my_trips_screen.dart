@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:myapp/api.dart';
+import 'package:myapp/utils/ticket_pdf.dart';
 
 class MyTripsScreen extends StatefulWidget {
   const MyTripsScreen({super.key});
@@ -88,54 +89,81 @@ class _MyTripsScreenState extends State<MyTripsScreen> {
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
                             child: Padding(
                               padding: const EdgeInsets.all(16),
-                              child: Row(
+                              child: Column(
                                 children: [
-                                  Container(
-                                    padding: const EdgeInsets.all(8),
-                                    decoration: BoxDecoration(
-                                      color: Colors.blue.shade50,
-                                      borderRadius: BorderRadius.circular(10),
-                                    ),
-                                    child: const Icon(Icons.flight, color: Colors.blue),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text('Réf: $ref',
-                                            style: const TextStyle(
-                                                fontWeight: FontWeight.bold, fontSize: 16)),
-                                        if (date != null)
-                                          Text(
-                                            'Réservé le ${date.day}/${date.month}/${date.year}',
-                                            style: TextStyle(
-                                                color: Colors.grey.shade600, fontSize: 12),
-                                          ),
-                                      ],
-                                    ),
-                                  ),
-                                  Column(
-                                    crossAxisAlignment: CrossAxisAlignment.end,
+                                  Row(
                                     children: [
-                                      Text('$amount $currency',
-                                          style: TextStyle(
-                                              color: Colors.green.shade700,
-                                              fontWeight: FontWeight.bold)),
                                       Container(
-                                        margin: const EdgeInsets.only(top: 4),
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 8, vertical: 2),
+                                        padding: const EdgeInsets.all(8),
                                         decoration: BoxDecoration(
-                                          color: statusColor.shade50,
+                                          color: Colors.blue.shade50,
                                           borderRadius: BorderRadius.circular(10),
                                         ),
-                                        child: Text(status,
-                                            style: TextStyle(
-                                                color: statusColor.shade700, fontSize: 11)),
+                                        child: const Icon(Icons.flight, color: Colors.blue),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              '${r['origin_iata'] ?? '---'} → ${r['destination_iata'] ?? '---'}',
+                                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                                            ),
+                                            Text('Réf: $ref',
+                                                style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+                                            if (date != null)
+                                              Text(
+                                                'Réservé le ${date.day}/${date.month}/${date.year}',
+                                                style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                                              ),
+                                          ],
+                                        ),
+                                      ),
+                                      Column(
+                                        crossAxisAlignment: CrossAxisAlignment.end,
+                                        children: [
+                                          Text('$amount $currency',
+                                              style: TextStyle(
+                                                  color: Colors.green.shade700,
+                                                  fontWeight: FontWeight.bold)),
+                                          Container(
+                                            margin: const EdgeInsets.only(top: 4),
+                                            padding: const EdgeInsets.symmetric(
+                                                horizontal: 8, vertical: 2),
+                                            decoration: BoxDecoration(
+                                              color: statusColor.shade50,
+                                              borderRadius: BorderRadius.circular(10),
+                                            ),
+                                            child: Text(status,
+                                                style: TextStyle(
+                                                    color: statusColor.shade700, fontSize: 11)),
+                                          ),
+                                        ],
                                       ),
                                     ],
                                   ),
+                                  if (status == 'confirmed') ...[
+                                    const SizedBox(height: 12),
+                                    const Divider(height: 1),
+                                    const SizedBox(height: 10),
+                                    SizedBox(
+                                      width: double.infinity,
+                                      child: OutlinedButton.icon(
+                                        onPressed: () => downloadTicketPdf(r),
+                                        icon: const Icon(Icons.picture_as_pdf, color: Colors.red),
+                                        label: const Text(
+                                          'Télécharger le billet PDF',
+                                          style: TextStyle(color: Colors.red),
+                                        ),
+                                        style: OutlinedButton.styleFrom(
+                                          side: const BorderSide(color: Colors.red),
+                                          shape: RoundedRectangleBorder(
+                                              borderRadius: BorderRadius.circular(10)),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ],
                               ),
                             ),

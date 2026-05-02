@@ -15,7 +15,6 @@ Future<String?> showAirportSearch(BuildContext context, {String? current}) {
 class _AirportSearchSheet extends StatefulWidget {
   final String? current;
   const _AirportSearchSheet({this.current});
-
   @override
   State<_AirportSearchSheet> createState() => _AirportSearchSheetState();
 }
@@ -25,20 +24,36 @@ class _AirportSearchSheetState extends State<_AirportSearchSheet> {
   final _api  = ApiClient();
   Timer? _debounce;
 
-  List<Map<String, String>> _results = [];
-  bool _loading = false;
+  String _query       = '';
+  bool   _apiLoading  = false;
+  List<Map<String, String>>? _apiResults; // null = pas encore chargés
 
-  List<Map<String, String>> get _staticList => kAirports
-      .map((a) => {'iata': a.iata, 'name': a.name, 'city': a.city, 'country': a.country})
-      .toList();
+  // Toujours afficher immédiatement : filtre statique OU résultats API
+  List<Map<String, String>> get _displayed {
+    final q = _query.trim().toLowerCase();
+    if (q.length < 2) {
+      return kAirports
+          .map((a) => {'iata': a.iata, 'name': a.name,
+                        'city': a.city, 'country': a.country})
+          .toList();
+    }
+    // Si l'API a déjà répondu, utiliser ses résultats
+    if (_apiResults != null) return _apiResults!;
+    // Sinon afficher le filtre statique pendant le chargement
+    return kAirports
+        .where((a) => a.matches(q))
+        .map((a) => {'iata': a.iata, 'name': a.name,
+                      'city': a.city, 'country': a.country})
+        .toList();
+  }
 
   @override
   void initState() {
     super.initState();
-    _results = _staticList;
-    if (widget.current != null && widget.current!.length == 3) {
+    if (widget.current != null) {
       _ctrl.text = widget.current!;
-      _search(widget.current!);
+      _query     = widget.current!;
+      _fetchDuffel(widget.current!);
     }
   }
 
@@ -51,45 +66,45 @@ class _AirportSearchSheetState extends State<_AirportSearchSheet> {
 
   void _onChanged(String q) {
     _debounce?.cancel();
-    if (q.trim().length < 2) {
-      setState(() { _results = _staticList; _loading = false; });
-      return;
-    }
-    setState(() => _loading = true);
-    _debounce = Timer(const Duration(milliseconds: 400), () => _search(q));
+    setState(() {
+      _query      = q;
+      _apiResults = null;         // reset API results → filtre statique affiché
+      _apiLoading = q.trim().length >= 2;
+    });
+    if (q.trim().length < 2) return;
+    // Déclencher Duffel après 600ms (debounce)
+    _debounce = Timer(const Duration(milliseconds: 600), () => _fetchDuffel(q));
   }
 
-  Future<void> _search(String q) async {
+  Future<void> _fetchDuffel(String q) async {
+    if (!mounted) return;
+    setState(() => _apiLoading = true);
     try {
-      final data = await _api.searchAirports(q);
+      final data = await _api
+          .searchAirports(q)
+          .timeout(const Duration(seconds: 10));
       if (!mounted) return;
-      setState(() {
-        _results = data
-            .map((a) => {
-                  'iata':    (a['iata']    ?? '').toString(),
-                  'name':    (a['name']    ?? '').toString(),
-                  'city':    (a['city']    ?? '').toString(),
-                  'country': (a['country'] ?? '').toString(),
-                })
-            .where((a) => a['iata']!.isNotEmpty)
-            .toList();
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _results = kAirports
-            .where((a) => a.matches(q))
-            .map((a) => {'iata': a.iata, 'name': a.name, 'city': a.city, 'country': a.country})
-            .toList();
-      });
-    } finally {
-      if (mounted) setState(() => _loading = false);
+      final results = data
+          .map((a) => {
+                'iata':    (a['iata']    ?? '').toString(),
+                'name':    (a['name']    ?? '').toString(),
+                'city':    (a['city']    ?? '').toString(),
+                'country': (a['country'] ?? '').toString(),
+              })
+          .where((a) => a['iata']!.isNotEmpty)
+          .toList();
+      if (mounted) setState(() { _apiResults = results; _apiLoading = false; });
+    } catch (e) {
+      debugPrint('[Airport] Duffel error: $e');
+      if (mounted) setState(() => _apiLoading = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final list   = _displayed;
     final bottom = MediaQuery.of(context).viewInsets.bottom;
+
     return Container(
       height: MediaQuery.of(context).size.height * 0.85,
       margin: EdgeInsets.only(bottom: bottom),
@@ -116,7 +131,7 @@ class _AirportSearchSheetState extends State<_AirportSearchSheet> {
               onChanged: _onChanged,
               decoration: InputDecoration(
                 hintText: 'Paris, CDG, Alger...',
-                prefixIcon: _loading
+                prefixIcon: _apiLoading
                     ? const Padding(
                         padding: EdgeInsets.all(12),
                         child: SizedBox(
@@ -134,33 +149,42 @@ class _AirportSearchSheetState extends State<_AirportSearchSheet> {
                         },
                       )
                     : null,
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14)),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(14),
-                  borderSide: const BorderSide(color: Colors.blue, width: 2),
+                  borderSide:
+                      const BorderSide(color: Colors.blue, width: 2),
                 ),
                 filled: true,
                 fillColor: Colors.grey.shade50,
               ),
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Align(
               alignment: Alignment.centerLeft,
-              child: Text('${_results.length} aéroport(s) trouvé(s)',
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
+              child: Text(
+                _apiLoading && _apiResults == null
+                    ? 'Recherche Duffel en cours...'
+                    : '${list.length} aéroport(s) trouvé(s)'
+                        '${_apiResults != null ? ' (Duffel)' : ''}',
+                style:
+                    TextStyle(fontSize: 12, color: Colors.grey.shade500),
+              ),
             ),
           ),
-          const Divider(height: 16),
+          const Divider(height: 12),
           Expanded(
-            child: _results.isEmpty
+            child: list.isEmpty
                 ? const Center(
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.search_off, size: 48, color: Colors.grey),
+                        Icon(Icons.search_off,
+                            size: 48, color: Colors.grey),
                         SizedBox(height: 8),
                         Text('Aucun aéroport trouvé',
                             style: TextStyle(color: Colors.grey)),
@@ -168,38 +192,41 @@ class _AirportSearchSheetState extends State<_AirportSearchSheet> {
                     ),
                   )
                 : ListView.separated(
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    itemCount: _results.length,
-                    separatorBuilder: (_, _) => const Divider(height: 1, indent: 70),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8),
+                    itemCount: list.length,
+                    separatorBuilder: (_, _) =>
+                        const Divider(height: 1, indent: 70),
                     itemBuilder: (_, i) {
-                      final a = _results[i];
+                      final a = list[i];
                       return ListTile(
                         leading: Container(
-                          width: 48,
-                          height: 48,
+                          width: 48, height: 48,
                           decoration: BoxDecoration(
                             color: Colors.blue.shade50,
                             borderRadius: BorderRadius.circular(10),
                           ),
                           child: Center(
-                            child: Text(
-                              a['iata']!,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 14,
-                                color: Colors.blue,
-                                letterSpacing: 1,
-                              ),
-                            ),
+                            child: Text(a['iata']!,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14,
+                                  color: Colors.blue,
+                                  letterSpacing: 1,
+                                )),
                           ),
                         ),
                         title: Text('${a['city']}, ${a['country']}',
-                            style: const TextStyle(fontWeight: FontWeight.w600)),
+                            style: const TextStyle(
+                                fontWeight: FontWeight.w600)),
                         subtitle: Text(a['name']!,
-                            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                            style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey.shade600),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis),
-                        onTap: () => Navigator.pop(context, a['iata']),
+                        onTap: () =>
+                            Navigator.pop(context, a['iata']),
                       );
                     },
                   ),

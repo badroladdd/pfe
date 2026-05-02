@@ -26,15 +26,26 @@ def create_reservation(
     offer_id: str,
     passengers_data: list[dict],
     payment_data: dict,
+    payment_method: str = "cash",
+    promo_code: str | None = None,
 ) -> Reservation:
     """
-    Client booking flow (pending — waits for agent confirmation):
+    Deux flux selon le mode de paiement :
 
-      1. Guard — prevent duplicate bookings
-      2. Validate offer is still live on Duffel
-      3. Save reservation as PENDING with booking data snapshot
-      4. Duffel order is NOT created yet — agent must confirm first
+    - cash (à la livraison) : sauvegarde PENDING, agent confirme plus tard
+    - cib  (carte bancaire) : appelle Duffel immédiatement → CONFIRMED
     """
+
+    # ── 0. Valider et appliquer le code promo ────────────────────────
+    promo = None
+    if promo_code:
+        from apps.reservations.models import PromoCode
+        try:
+            promo = PromoCode.objects.get(code=promo_code.upper())
+            if not promo.is_valid:
+                promo = None
+        except PromoCode.DoesNotExist:
+            promo = None
 
     # ── 1. Duplicate guard ────────────────────────────────────────────
     already_exists = Reservation.objects.filter(
@@ -54,7 +65,43 @@ def create_reservation(
         offer.get("total_currency"),
     )
 
-    # ── 3. Save as PENDING — NO Duffel order yet ──────────────────────
+    duffel_passengers = _build_duffel_passengers(passengers_data)
+    duffel_payment    = _build_duffel_payment(payment_data)
+
+    # ── 3a. Paiement carte (CIB) — confirmation immédiate ────────────
+    if payment_method == "cib":
+        duffel_order = duffel.create_order(
+            offer_id=offer_id,
+            passengers=duffel_passengers,
+            payment=duffel_payment,
+            metadata={"user_id": str(user.id), "payment_method": "cib"},
+        )
+        with transaction.atomic():
+            reservation = Reservation.objects.create(
+                user=user,
+                offer_id=offer_id,
+                status=Reservation.Status.CONFIRMED,
+                total_amount=Decimal(str(duffel_order.get("total_amount", "0"))),
+                currency=duffel_order.get("total_currency", "EUR"),
+                external_order_id=duffel_order["id"],
+                booking_reference=duffel_order.get("booking_reference", ""),
+                raw_duffel_order=duffel_order,
+                pending_booking_data=None,
+            )
+            Passenger.objects.bulk_create([
+                _build_passenger_obj(reservation, p, duffel_order)
+                for p in passengers_data
+            ])
+            if promo:
+                promo.used_count += 1
+                promo.save(update_fields=["used_count"])
+            logger.info(
+                "Reservation confirmed instantly (CIB): id=%s order=%s user=%s",
+                reservation.id, duffel_order["id"], user.email,
+            )
+            return reservation
+
+    # ── 3b. Paiement ultérieurement (cash) — attente agent ───────────
     with transaction.atomic():
         reservation = Reservation.objects.create(
             user=user,
@@ -64,19 +111,19 @@ def create_reservation(
             currency=offer.get("total_currency", "EUR"),
             raw_duffel_order=offer,
             pending_booking_data={
-                "duffel_passengers": _build_duffel_passengers(passengers_data),
-                "payment": _build_duffel_payment(payment_data),
+                "duffel_passengers": duffel_passengers,
+                "payment": duffel_payment,
             },
         )
-
-        passenger_objs = [
+        Passenger.objects.bulk_create([
             _build_passenger_obj_pending(reservation, p)
             for p in passengers_data
-        ]
-        Passenger.objects.bulk_create(passenger_objs)
-
+        ])
+        if promo:
+            promo.used_count += 1
+            promo.save(update_fields=["used_count"])
         logger.info(
-            "Reservation created (pending): id=%s user=%s offer=%s",
+            "Reservation created (pending/cash): id=%s user=%s offer=%s",
             reservation.id, user.email, offer_id,
         )
         return reservation

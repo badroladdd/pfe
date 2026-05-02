@@ -36,11 +36,19 @@ class _HomeScreenState extends State<HomeScreen> {
   bool isRefundable = false;
 
   final ApiClient api = ApiClient();
+  List<Map<String, dynamic>> _recommendations = [];
 
   @override
   void initState() {
     super.initState();
-    routes = [];
+    routes = [{'from': 'ALG', 'to': 'TUN', 'date': _formatDate(DateTime.now())}];
+    _loadRecommendations('ALG');
+  }
+
+  Future<void> _loadRecommendations(String origin) async {
+    if (origin.length != 3) return;
+    final results = await api.getRecommendations(origin);
+    if (mounted) setState(() => _recommendations = results);
   }
 
   String _formatDate(DateTime date) {
@@ -59,13 +67,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  void _addRoute() {
-    if (routes.length < 4) {
-      setState(() {
-        routes.add({'from': '', 'to': '', 'date': _formatDate(DateTime.now())});
-      });
-    }
-  }
 
   Future<void> _searchFlights() async {
     final origin      = routes[0]['from']?.trim().toUpperCase() ?? '';
@@ -205,6 +206,10 @@ class _HomeScreenState extends State<HomeScreen> {
           _buildOptionsRow(),
           const SizedBox(height: 25),
           _buildSearchButton(),
+          if (_recommendations.isNotEmpty) ...[
+            const SizedBox(height: 24),
+            _buildRecommendations(),
+          ],
         ],
       ),
         ),
@@ -212,38 +217,62 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildHeader() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+  Widget _buildRecommendations() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Icon(Icons.airplanemode_active, color: Colors.blue, size: 35),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: Colors.blue.shade100),
-          ),
-          child: Row(
-            children: [
-              const Icon(Icons.phone, size: 16, color: Colors.blue),
-              const SizedBox(width: 8),
-              const Text("0560 99 90 09",
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-            ],
-          ),
+        Row(
+          children: [
+            const Icon(Icons.auto_awesome, color: Colors.blue, size: 18),
+            const SizedBox(width: 8),
+            const Text('Destinations populaires',
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+          ],
         ),
-        Container(
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            border: Border.all(color: Colors.grey.shade300),
-          ),
-          child: const CircleAvatar(
-            backgroundColor: Colors.white,
-            radius: 18,
-            child: Text("🇫🇷", style: TextStyle(fontSize: 18)),
-          ),
-        ),
+        const SizedBox(height: 10),
+        ..._recommendations.map((r) {
+          final dest       = r['destination'] as String;
+          final trajet     = r['trajet'] as String;
+          final confidence = ((r['confidence'] as double) * 100).toStringAsFixed(0);
+          return Card(
+            margin: const EdgeInsets.only(bottom: 8),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            child: ListTile(
+              leading: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(dest,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.blue,
+                        letterSpacing: 1)),
+              ),
+              title: Text(trajet,
+                  style: const TextStyle(fontWeight: FontWeight.w600)),
+              subtitle: Text('$confidence% des voyageurs choisissent cette destination'),
+              trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
+              onTap: () {
+                setState(() => routes[0]['to'] = dest);
+                // Lancer la recherche automatiquement
+                Future.delayed(const Duration(milliseconds: 100), _searchFlights);
+              },
+            ),
+          );
+        }),
+      ],
+    );
+  }
+
+  Widget _buildHeader() {
+    return const Row(
+      children: [
+        Icon(Icons.airplanemode_active, color: Colors.blue, size: 35),
+        SizedBox(width: 12),
+        Text('Recherche de vols',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
       ],
     );
   }
@@ -251,16 +280,14 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildTabSelector() {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceAround,
-      children: ["Aller-Retour", "Aller simple", "Multi"].asMap().entries.map((entry) {
+      children: ["Aller-Retour", "Aller simple"].asMap().entries.map((entry) {
         final isActive = _flightMode == entry.key;
         return GestureDetector(
           onTap: () => setState(() {
             _flightMode = entry.key;
-            if (_flightMode != 2) {
-              routes = [
-                {'from': 'ALG', 'to': 'TUN', 'date': _formatDate(DateTime.now())}
-              ];
-            }
+            routes = [
+              {'from': 'ALG', 'to': 'TUN', 'date': _formatDate(DateTime.now())}
+            ];
           }),
           child: Column(
             children: [
@@ -301,12 +328,6 @@ class _HomeScreenState extends State<HomeScreen> {
               isDate: true,
             ),
           ],
-          if (_flightMode == 2)
-            TextButton.icon(
-              onPressed: _addRoute,
-              icon: const Icon(Icons.add),
-              label: const Text("Ajouter un vol"),
-            ),
           const Divider(height: 1),
           _buildDualField(),
         ],
@@ -321,6 +342,7 @@ class _HomeScreenState extends State<HomeScreen> {
         _buildListTile(Icons.flight_takeoff, "D'où partez-vous ?",
             routes[index]['from'] ?? 'ALG', (value) {
           setState(() => routes[index]['from'] = value);
+          _loadRecommendations(value);
         }),
         const Divider(indent: 50, height: 1),
         _buildListTile(Icons.flight_land, "Où allez-vous ?",

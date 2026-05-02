@@ -11,7 +11,11 @@
       "Bash(python manage.py check)",
       "Bash(/c/flutter/bin/mingit/usr/bin/sh.exe /c/flutter/bin/flutter run -d chrome --web-port 3000)",
       "Bash(/c/flutter/bin/mingit/usr/bin/sh.exe /c/flutter/bin/flutter run -d edge --web-port 3000)",
-      "Bash(/c/flutter/bin/mingit/usr/bin/sh.exe /c/flutter/bin/flutter run -d web-server --web-port 3000 --web-hostname 0.0.0.0)"
+      "Bash(/c/flutter/bin/mingit/usr/bin/sh.exe /c/flutter/bin/flutter run -d web-server --web-port 3000 --web-hostname 0.0.0.0)",
+      "Bash(flutter analyze *)",
+      "Bash(.venv\\\\Scripts\\\\python manage.py shell -c \"from apps.users.models import User; u = User.objects.filter\\(email='admin@admin.com'\\).first\\(\\); print\\(u, u.role if u else 'NOT FOUND', u.is_active if u else ''\\)\")",
+      "Bash(python manage.py shell -c \"from apps.users.models import User; u = User.objects.filter\\(email='admin@admin.com'\\).first\\(\\); print\\(u, u.role if u else 'NOT FOUND', u.is_active if u else ''\\)\")",
+      "Bash(python manage.py shell -c ' *)"
     ]
   }
 }

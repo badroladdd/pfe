@@ -45,7 +45,13 @@ class _LoginScreenState extends State<LoginScreen> {
         context, MaterialPageRoute(builder: (_) => destination),
       );
     } catch (e) {
-      _snack('Identifiants incorrects.', Colors.red);
+      if (e is NetworkException) {
+        _snack('Impossible de joindre le serveur. Vérifiez votre connexion.', Colors.orange);
+      } else if (e is UnauthorizedException || e.toString().contains('401')) {
+        _snack('Identifiants incorrects.', Colors.red);
+      } else {
+        _snack('Erreur : $e', Colors.red);
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }

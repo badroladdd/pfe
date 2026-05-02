@@ -26,11 +26,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 /// Change this to your production URL when deploying.
-/// For Android emulator: use 10.0.2.2 instead of localhost.
-/// For iOS simulator: localhost works fine.
+/// Pour téléphone physique : utiliser l'IP locale du PC (même réseau WiFi)
+/// Pour émulateur Android : utiliser 10.0.2.2
 const String _kBaseUrl = String.fromEnvironment(
   'API_BASE_URL',
-  defaultValue: 'http://localhost:8000/api/v1',
+  defaultValue: 'http://192.168.100.7:8000/api/v1',
 );
 
 const String _kAccessTokenKey  = 'access_token';
@@ -300,6 +300,8 @@ class ApiClient {
     required Map<String, dynamic> flightOffer,
     required List<Map<String, dynamic>> passengers,
     bool acceptPriceChange = false,
+    String paymentMethod = 'cash',
+    String? promoCode,
   }) async {
     final data = await _post(
       '/reservations/',
@@ -307,6 +309,8 @@ class ApiClient {
         'flight_offer':        flightOffer,
         'passengers':          passengers,
         'accept_price_change': acceptPriceChange,
+        'payment_method':      paymentMethod,
+        'promo_code': promoCode,
       },
     );
     return data['data'] as Map<String, dynamic>;
@@ -410,14 +414,35 @@ class ApiClient {
     required Map<String, dynamic> flightOffer,
     required List<Map<String, dynamic>> passengers,
     String? forUserId,
+    String paymentMethod = 'cash',
+    String? promoCode,
   }) async {
     final body = <String, dynamic>{
-      'flight_offer': flightOffer,
-      'passengers':   passengers,
-      'for_user_id':  forUserId,
+      'flight_offer':   flightOffer,
+      'passengers':     passengers,
+      'for_user_id':    forUserId,
+      'payment_method': paymentMethod,
+      'promo_code':     promoCode,
     };
     final data = await _post('/agent/reservations/', body: body);
     return data['data'] as Map<String, dynamic>;
+  }
+
+  // ══════════════════════════════════════════════════════════════════
+  // RECOMMENDATIONS (A priori)
+  // ══════════════════════════════════════════════════════════════════
+
+  Future<List<Map<String, dynamic>>> getRecommendations(String origin) async {
+    try {
+      final data = await _get(
+        '/recommendations/',
+        queryParams: {'origin': origin},
+        requiresAuth: false,
+      );
+      return (data['results'] as List).cast<Map<String, dynamic>>();
+    } catch (_) {
+      return [];
+    }
   }
 
   // ══════════════════════════════════════════════════════════════════

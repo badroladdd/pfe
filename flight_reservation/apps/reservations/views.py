@@ -75,11 +75,16 @@ class ReservationListCreateView(APIView):
         serializer.is_valid(raise_exception=True)
         d = serializer.validated_data
 
+        payment_method = request.data.get("payment_method", "cash")
+        promo_code     = request.data.get("promo_code")
+
         reservation = services.create_reservation(
             user=request.user,
             offer_id=d["offer_id"],
             passengers_data=d["passengers"],
             payment_data=d["payment"],
+            payment_method=payment_method,
+            promo_code=promo_code,
         )
         output = ReservationOutputSerializer(reservation)
         return Response({"data": output.data}, status=status.HTTP_201_CREATED)

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:myapp/screens/home/home_screen.dart';
-import 'package:myapp/screens/support/support_screen.dart';
 import 'package:myapp/screens/trips/my_trips_screen.dart';
 import 'package:myapp/screens/profile/profile_screen.dart';
 
@@ -17,7 +16,7 @@ class _MainNavigationState extends State<MainNavigation> {
 
   void _onBookingCreated() {
     setState(() {
-      _currentIndex = 2;
+      _currentIndex = 1;
       _tripsKey++;
     });
   }
@@ -26,7 +25,6 @@ class _MainNavigationState extends State<MainNavigation> {
   Widget build(BuildContext context) {
     final List<Widget> pages = [
       HomeScreen(onBookingCreated: _onBookingCreated),
-      const SupportScreen(),
       MyTripsScreen(key: ValueKey(_tripsKey)),
       const ProfileScreen(),
     ];
@@ -37,7 +35,7 @@ class _MainNavigationState extends State<MainNavigation> {
         currentIndex: _currentIndex,
         onTap: (index) => setState(() {
           _currentIndex = index;
-          if (index == 2) _tripsKey++;
+          if (index == 1) _tripsKey++;
         }),
         type: BottomNavigationBarType.fixed,
         selectedItemColor: Colors.blue[600],
@@ -48,10 +46,6 @@ class _MainNavigationState extends State<MainNavigation> {
               icon: Icon(Icons.home_outlined),
               activeIcon: Icon(Icons.home),
               label: "Accueil"),
-          BottomNavigationBarItem(
-              icon: Icon(Icons.headset_mic_outlined),
-              activeIcon: Icon(Icons.headset_mic),
-              label: "Support"),
           BottomNavigationBarItem(
               icon: Icon(Icons.calendar_month_outlined),
               activeIcon: Icon(Icons.calendar_month),
