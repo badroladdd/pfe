@@ -407,12 +407,28 @@ def _convert_flutter_passengers(flutter_passengers: list, offer_passengers: list
         title = "mrs" if gender == "F" else "mr"
 
         # Format phone to E.164 (Duffel requirement: must start with '+')
-        phone = p.get("phone", "").strip()
-        if phone and not phone.startswith("+"):
-            phone = "+" + phone.lstrip("0")
+        phone        = p.get("phone", "").strip()
+        country_code = p.get("phone_country_code", "213").strip().lstrip("+")
+        if phone:
+            if phone.startswith("+"):
+                pass  # deja E.164
+            elif phone.startswith("0"):
+                # 0550123456 → +213550123456
+                phone = f"+{country_code}{phone[1:]}"
+            else:
+                # 550123456 → +213550123456
+                phone = f"+{country_code}{phone}"
+        # Valider longueur minimale
+        if len(phone) < 8:
+            phone = ""
+
+        pax_type = p.get("passenger_type", "adult")
+        # Normaliser : infant/infant_without_seat → infant_without_seat pour Duffel
+        if "infant" in pax_type:
+            pax_type = "infant_without_seat"
 
         django_passenger = {
-            "type":         p.get("passenger_type", "adult"),
+            "type":         pax_type,
             "title":        title,
             "given_name":   p.get("first_name", ""),
             "family_name":  p.get("last_name", ""),

@@ -432,13 +432,11 @@ class ApiClient {
   // RECOMMENDATIONS (A priori)
   // ══════════════════════════════════════════════════════════════════
 
-  Future<List<Map<String, dynamic>>> getRecommendations(String origin) async {
+  Future<List<Map<String, dynamic>>> getRecommendations(String origin, {String destination = ''}) async {
     try {
-      final data = await _get(
-        '/recommendations/',
-        queryParams: {'origin': origin},
-        requiresAuth: false,
-      );
+      final params = <String, String>{'origin': origin};
+      if (destination.isNotEmpty) params['destination'] = destination;
+      final data = await _get('/recommendations/', queryParams: params, requiresAuth: false);
       return (data['results'] as List).cast<Map<String, dynamic>>();
     } catch (_) {
       return [];

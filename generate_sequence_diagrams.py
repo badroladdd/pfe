@@ -8,11 +8,14 @@ C_SYS   = '#2E7D32'
 C_OBJ   = '#6A1B9A'
 C_EXT   = '#E65100'
 C_DB    = '#37474F'
+BLACK   = '#000000'
 
-ROW_H   = 0.70   # hauteur par message
-ACTOR_H = 0.75
+ROW_H   = 1.20   # hauteur par message
+ACTOR_H = 1.10   # hauteur boite acteur
+FONT_MSG = 15.0  # taille police messages
+FONT_ACT = 14.0  # taille police acteurs
 
-def seq(title, actors, messages, figw=14, filename=None):
+def seq(title, actors, messages, figw=18, filename=None):
     """
     messages items:
       (fi, ti, text, style)              style: call | return | self
@@ -40,18 +43,18 @@ def seq(title, actors, messages, figw=14, filename=None):
 
     # titre
     ax.text((n-1)/2, 2.55, title,
-            ha='center', va='center', fontsize=11, fontweight='bold', color='#0D47A1',
+            ha='center', va='center', fontsize=15, fontweight='bold', color=BLACK,
             bbox=dict(boxstyle='round,pad=0.4', facecolor='#E3F2FD',
                       edgecolor='#1565C0', lw=1.5))
 
     # boites acteurs
     for i, (lbl, color) in enumerate(actors):
         ax.add_patch(mpatches.FancyBboxPatch(
-            (xs[i]-0.38, 1.55), 0.76, ACTOR_H,
+            (xs[i]-0.42, 1.55), 0.84, ACTOR_H,
             boxstyle='round,pad=0.05', lw=2,
             edgecolor=color, facecolor=color, zorder=4))
-        ax.text(xs[i], 1.93, lbl.replace(' ', '\n'),
-                ha='center', va='center', fontsize=8,
+        ax.text(xs[i], 1.975, lbl.replace(' ', '\n'),
+                ha='center', va='center', fontsize=FONT_ACT,
                 fontweight='bold', color='white', zorder=5, linespacing=1.3)
 
     bottom = -(rows + 0.5) * ROW_H - 0.5
@@ -94,7 +97,7 @@ def seq(title, actors, messages, figw=14, filename=None):
                             color='#546E7A', lw=1, linestyle='--', zorder=3)
                     ax.text(x_left()+0.07, y + ROW_H*0.15 - 0.12,
                             '['+msg[1]+']',
-                            fontsize=7.5, color='#37474F',
+                            fontsize=12, color=BLACK,
                             style='italic', zorder=5)
                 continue
 
@@ -117,12 +120,12 @@ def seq(title, actors, messages, figw=14, filename=None):
                         facecolor='#CFD8DC', zorder=3))
                     ax.text(xl+0.22, fr['y_top']-0.14, 'alt',
                             ha='center', va='center',
-                            fontsize=8, fontweight='bold',
-                            color='#263238', zorder=4)
+                            fontsize=12.5, fontweight='bold',
+                            color=BLACK, zorder=4)
                     # condition vraie
                     ax.text(xl+0.55, fr['y_top']-0.14,
                             '['+fr['label']+']',
-                            fontsize=7.5, color='#37474F',
+                            fontsize=12, color=BLACK,
                             style='italic', zorder=4)
                 continue
 
@@ -151,12 +154,12 @@ def seq(title, actors, messages, figw=14, filename=None):
                         facecolor='#C8E6C9', zorder=3))
                     ax.text(xl + lbl_w/2, fr['y_top']-0.16, 'loop',
                             ha='center', va='center',
-                            fontsize=8.5, fontweight='bold',
-                            color='#1B5E20', zorder=4)
+                            fontsize=12.5, fontweight='bold',
+                            color=BLACK, zorder=4)
                     # condition
                     ax.text(xl + lbl_w + 0.15, fr['y_top']-0.16,
                             '['+fr['label']+']',
-                            fontsize=7.5, color='#2E7D32',
+                            fontsize=12, color=BLACK,
                             style='italic', zorder=4,
                             bbox=dict(boxstyle='round,pad=0.15',
                                       facecolor='white', edgecolor='none', alpha=0.85))
@@ -177,12 +180,12 @@ def seq(title, actors, messages, figw=14, filename=None):
                     facecolor='#B3E5FC', zorder=3))
                 ax.text(xl+0.21, y+ROW_H*0.1-0.14, 'ref',
                         ha='center', va='center',
-                        fontsize=8, fontweight='bold',
-                        color='#01579B', zorder=4)
+                        fontsize=12.5, fontweight='bold',
+                        color=BLACK, zorder=4)
                 ax.text((xl+xr)/2, y - h/2 + ROW_H*0.1,
                         msg[1],
                         ha='center', va='center',
-                        fontsize=9, color='#01579B',
+                        fontsize=13, color=BLACK,
                         fontweight='bold', zorder=4)
                 y -= ROW_H
                 row_idx += 1
@@ -207,15 +210,14 @@ def seq(title, actors, messages, figw=14, filename=None):
                                         color=sc, lw=1.4,
                                         mutation_scale=10), zorder=4)
             ax.text(lp+0.07, cur_y-0.14, text,
-                    ha='left', va='center', fontsize=8, color='#212121',
+                    ha='left', va='center', fontsize=FONT_MSG, color=BLACK,
                     bbox=dict(boxstyle='round,pad=0.2',
                               facecolor='white', edgecolor='none', alpha=0.9))
             continue
 
         x1, x2  = xs[fi], xs[ti]
         is_ret   = (style == 'return')
-        _, ac    = actors[ti]
-        col_arr  = '#9E9E9E' if is_ret else ac
+        col_arr  = BLACK
         ls       = '--' if is_ret else '-'
         pad      = 0.10
 
@@ -236,8 +238,8 @@ def seq(title, actors, messages, figw=14, filename=None):
 
         mx = (x1+x2)/2
         ax.text(mx, cur_y+0.13, text,
-                ha='center', va='bottom', fontsize=8.2,
-                color='#424242' if not is_ret else '#757575',
+                ha='center', va='bottom', fontsize=FONT_MSG,
+                color=BLACK,
                 style='italic' if is_ret else 'normal',
                 bbox=dict(boxstyle='round,pad=0.2',
                           facecolor='white', edgecolor='none', alpha=0.9))
@@ -259,21 +261,20 @@ seq("Diagramme de Sequence - Authentification",
     [
         (0, 1, "sAuthentifier(email, motDePasse)", 'call'),
         (1, 2, "trouverParEmail(email)",           'call'),
-        ('alt', 'utilisateur trouve'),
+        ('alt', 'email trouve ET mot de passe correct'),
             (2, 1, "utilisateur",                  'return'),
             (1, 1, "verifierMotDePasse()",         'self'),
-            ('alt', 'mot de passe correct'),
-                (1, 0, "tokenAcces + tokenRafraichissement", 'return'),
-                (0, 0, "stocker tokens",           'self'),
-            ('else', 'mot de passe incorrect'),
-                (1, 0, "erreur : identifiants invalides", 'return'),
-            ('end_alt',),
+            (1, 0, "tokenAcces + tokenRafraichissement", 'return'),
+            (0, 0, "stocker tokens",               'self'),
+        ('else', 'mot de passe incorrect'),
+            (2, 1, "utilisateur",                  'return'),
+            (1, 0, "erreur : identifiants invalides", 'return'),
         ('else', 'utilisateur non trouve'),
             (2, 1, "non trouve",                   'return'),
             (1, 0, "erreur : compte inexistant",   'return'),
         ('end_alt',),
     ],
-    figw=13, filename=BASE+'seq_1_authentification.png')
+    figw=19, filename=BASE+'seq_1_authentification.png')
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  2 — Inscription
@@ -294,7 +295,7 @@ seq("Diagramme de Sequence - Inscription",
             (1, 0, "erreur : email existe deja",    'return'),
         ('end_alt',),
     ],
-    figw=13, filename=BASE+'seq_2_inscription.png')
+    figw=17, filename=BASE+'seq_2_inscription.png')
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  3 — Recherche de vols
@@ -321,7 +322,7 @@ seq("Diagramme de Sequence - Recherche de Vols",
             (1, 0, "liste vide",                      'return'),
         ('end_alt',),
     ],
-    figw=16, filename=BASE+'seq_3_recherche_vols.png')
+    figw=20, filename=BASE+'seq_3_recherche_vols.png')
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  4 — Réservation client
@@ -348,7 +349,7 @@ seq("Diagramme de Sequence - Reservation (Client)",
             (1, 0, "erreur : offre non disponible",     'return'),
         ('end_alt',),
     ],
-    figw=17, filename=BASE+'seq_4_reservation_client.png')
+    figw=21, filename=BASE+'seq_4_reservation_client.png')
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  5 — Confirmation agent
@@ -375,7 +376,7 @@ seq("Diagramme de Sequence - Confirmation Reservation (Agent)",
             (1, 0, "erreur : impossible de confirmer",   'return'),
         ('end_alt',),
     ],
-    figw=17, filename=BASE+'seq_5_confirmation_agent.png')
+    figw=21, filename=BASE+'seq_5_confirmation_agent.png')
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  6 — Annulation
@@ -404,7 +405,7 @@ seq("Diagramme de Sequence - Annulation de Reservation",
         (2, 1, "reservation [ANNULE]",                 'return'),
         (1, 0, "confirmation annulation",              'return'),
     ],
-    figw=17, filename=BASE+'seq_6_annulation.png')
+    figw=21, filename=BASE+'seq_6_annulation.png')
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  7 — Code promo
@@ -436,7 +437,7 @@ seq("Diagramme de Sequence - Application Code Promo",
             (1, 0, "erreur : code inexistant",      'return'),
         ('end_alt',),
     ],
-    figw=14, filename=BASE+'seq_7_code_promo.png')
+    figw=18, filename=BASE+'seq_7_code_promo.png')
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  8 — Gestion utilisateurs (admin)
@@ -476,6 +477,6 @@ seq("Diagramme de Sequence - Gestion Utilisateurs (Admin)",
             (1, 0, "confirmation suppression", 'return'),
         ('end_loop',),
     ],
-    figw=14, filename=BASE+'seq_8_gestion_utilisateurs.png')
+    figw=18, filename=BASE+'seq_8_gestion_utilisateurs.png')
 
 print("Tous les diagrammes generes avec alt, loop et ref !")

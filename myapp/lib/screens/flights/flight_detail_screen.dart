@@ -197,6 +197,44 @@ class FlightDetailScreen extends StatelessWidget {
 
             const Divider(height: 24),
 
+            // ── Places disponibles ─────────────────────────────────
+            Builder(builder: (_) {
+              final summary  = rawOffer['_summary'] as Map<String, dynamic>?;
+              final seats    = summary?['seats_available'];
+              final seatsInt = seats != null
+                  ? (seats is int ? seats : int.tryParse(seats.toString()))
+                  : null;
+              final color = seatsInt == null
+                  ? Colors.grey
+                  : seatsInt <= 5 ? Colors.red
+                  : seatsInt <= 10 ? Colors.orange
+                  : Colors.green;
+              final label = seatsInt == null
+                  ? 'Places disponibles : non communiqué par la compagnie'
+                  : seatsInt == 0
+                      ? 'Complet'
+                      : '$seatsInt place${seatsInt > 1 ? 's' : ''} disponible${seatsInt > 1 ? 's' : ''}';
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Row(
+                  children: [
+                    Icon(Icons.event_seat, size: 16, color: color),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        label,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: color,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }),
+
             // ── Segments detail ────────────────────────────────────
             for (final seg in segments) _buildSegmentDetail(seg),
 

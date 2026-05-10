@@ -21,6 +21,43 @@ class _MyTripsScreenState extends State<MyTripsScreen> {
     _load();
   }
 
+  Future<void> _cancelReservation(String id) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Annuler la réservation'),
+        content: const Text('Voulez-vous vraiment annuler cette réservation ?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Non'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Oui, annuler', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+    try {
+      await _api.cancelReservation(id);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Réservation annulée'), backgroundColor: Colors.orange),
+        );
+        _load();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
   Future<void> _load() async {
     setState(() { _loading = true; _error = null; });
     try {
@@ -143,25 +180,41 @@ class _MyTripsScreenState extends State<MyTripsScreen> {
                                       ),
                                     ],
                                   ),
-                                  if (status == 'confirmed') ...[
+                                  if (status == 'confirmed' || status == 'pending') ...[
                                     const SizedBox(height: 12),
                                     const Divider(height: 1),
                                     const SizedBox(height: 10),
-                                    SizedBox(
-                                      width: double.infinity,
-                                      child: OutlinedButton.icon(
-                                        onPressed: () => downloadTicketPdf(r),
-                                        icon: const Icon(Icons.picture_as_pdf, color: Colors.red),
-                                        label: const Text(
-                                          'Télécharger le billet PDF',
-                                          style: TextStyle(color: Colors.red),
+                                    Row(
+                                      children: [
+                                        if (status == 'confirmed')
+                                          Expanded(
+                                            child: OutlinedButton.icon(
+                                              onPressed: () => downloadTicketPdf(r),
+                                              icon: const Icon(Icons.picture_as_pdf, color: Colors.red),
+                                              label: const Text('Billet PDF',
+                                                  style: TextStyle(color: Colors.red)),
+                                              style: OutlinedButton.styleFrom(
+                                                side: const BorderSide(color: Colors.red),
+                                                shape: RoundedRectangleBorder(
+                                                    borderRadius: BorderRadius.circular(10)),
+                                              ),
+                                            ),
+                                          ),
+                                        if (status == 'confirmed') const SizedBox(width: 8),
+                                        Expanded(
+                                          child: OutlinedButton.icon(
+                                            onPressed: () => _cancelReservation(r['id'].toString()),
+                                            icon: const Icon(Icons.cancel_outlined, color: Colors.orange),
+                                            label: const Text('Annuler',
+                                                style: TextStyle(color: Colors.orange)),
+                                            style: OutlinedButton.styleFrom(
+                                              side: const BorderSide(color: Colors.orange),
+                                              shape: RoundedRectangleBorder(
+                                                  borderRadius: BorderRadius.circular(10)),
+                                            ),
+                                          ),
                                         ),
-                                        style: OutlinedButton.styleFrom(
-                                          side: const BorderSide(color: Colors.red),
-                                          shape: RoundedRectangleBorder(
-                                              borderRadius: BorderRadius.circular(10)),
-                                        ),
-                                      ),
+                                      ],
                                     ),
                                   ],
                                 ],

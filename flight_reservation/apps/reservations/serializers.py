@@ -28,7 +28,8 @@ class IdentityDocumentSerializer(serializers.Serializer):
 class PassengerInputSerializer(serializers.Serializer):
     id = serializers.CharField(max_length=100, required=False, allow_blank=True, default="")
     type = serializers.ChoiceField(
-        choices=["adult", "child", "infant"], default="adult"
+        choices=["adult", "child", "infant", "infant_without_seat", "infant_with_seat"],
+        default="adult"
     )
     title = serializers.ChoiceField(choices=["mr", "mrs", "ms", "dr"])
     gender = serializers.ChoiceField(choices=["m", "f"], required=False, default="m")

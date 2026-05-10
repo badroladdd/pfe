@@ -63,17 +63,19 @@ class FlightSearchView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # Duffel v2 : pour les enfants, utiliser SOIT type SOIT age (pas les deux)
         child_passengers = []
         for i in range(children):
-            pax = {"type": "child"}
             if i < len(children_ages):
-                pax["age"] = children_ages[i]
-            child_passengers.append(pax)
+                # Avec age : Duffel infere automatiquement le type
+                child_passengers.append({"age": children_ages[i]})
+            else:
+                # Sans age : utiliser type uniquement
+                child_passengers.append({"type": "child"})
 
         passengers = (
             [{"type": "adult"}] * adults
             + child_passengers
-            + [{"type": "infant_without_seat"}] * infants
         )
 
         result = services.search_flights(
@@ -202,7 +204,9 @@ class RecommendationsView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
-        origin = request.query_params.get("origin", "").strip().upper()
+        origin      = request.query_params.get("origin",      "").strip().upper()
+        destination = request.query_params.get("destination", "").strip().upper()
+
         if not origin or len(origin) != 3:
             return Response(
                 {"detail": "origin (code IATA 3 lettres) est requis."},
@@ -210,5 +214,5 @@ class RecommendationsView(APIView):
             )
 
         from apps.flights.apriori_service import get_recommendations
-        results = get_recommendations(origin)
-        return Response({"origin": origin, "results": results})
+        results = get_recommendations(origin, destination)
+        return Response({"origin": origin, "destination": destination, "results": results})

@@ -265,22 +265,29 @@ def cancel_reservation(reservation_id, user) -> Reservation:
 
 def _build_duffel_passengers(passengers_data: list[dict]) -> list[dict]:
     """Map validated serializer data → Duffel passenger schema."""
+    # Recuperer le telephone du premier adulte comme fallback
+    adult_phone = next(
+        (p.get("phone_number", "") for p in passengers_data
+         if p.get("type", "adult") == "adult" and p.get("phone_number")),
+        ""
+    )
+
     result = []
     for p in passengers_data:
+        pax_type = p.get("type", "adult")
         passenger: dict = {
-            "type": p.get("type", "adult"),
-            "title": p["title"],
-            "given_name": p["given_name"],
+            "type":        pax_type,
+            "title":       p["title"],
+            "given_name":  p["given_name"],
             "family_name": p["family_name"],
-            "born_on": str(p["born_on"]),
-            "email": p["email"],
-            "gender": p.get("gender", "m"),
+            "born_on":     str(p["born_on"]),
+            "email":       p["email"],
+            "gender":      p.get("gender", "m"),
         }
-        # Duffel requires the passenger ID from the original offer
         if p.get("id"):
             passenger["id"] = p["id"]
-        # Only include phone_number when non-empty (Duffel rejects empty strings)
-        phone = p.get("phone_number", "")
+        # Telephone : utiliser celui du passager ou fallback adulte
+        phone = p.get("phone_number", "") or adult_phone
         if phone:
             passenger["phone_number"] = phone
         if p.get("identity_documents"):
@@ -306,13 +313,22 @@ def _build_duffel_payment(payment_data: dict) -> dict:
     }
 
 
+def _normalize_passenger_type(pax_type: str) -> str:
+    """Normalise le type passager pour la base de donnees (max 10 chars)."""
+    if "infant" in pax_type:
+        return Passenger.Type.INFANT
+    if "child" in pax_type:
+        return Passenger.Type.CHILD
+    return Passenger.Type.ADULT
+
+
 def _build_passenger_obj_pending(reservation: Reservation, p: dict) -> Passenger:
     """Build a Passenger object from serializer data without a Duffel order."""
     docs = p.get("identity_documents", [])
     first_doc = docs[0] if docs else {}
     return Passenger(
         reservation=reservation,
-        type=p.get("type", Passenger.Type.ADULT),
+        type=_normalize_passenger_type(p.get("type", Passenger.Type.ADULT)),
         title=p["title"],
         first_name=p["given_name"],
         last_name=p["family_name"],

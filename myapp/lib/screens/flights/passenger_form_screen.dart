@@ -7,7 +7,7 @@ class PassengerFormScreen extends StatefulWidget {
   final Map<String, dynamic> rawOffer;
   final Flight flight;
   final VoidCallback onBookingCreated;
-  final String? forUserId; // agent: book on behalf of this user
+  final String? forUserId;
 
   const PassengerFormScreen({
     super.key,
@@ -21,46 +21,120 @@ class PassengerFormScreen extends StatefulWidget {
   State<PassengerFormScreen> createState() => _PassengerFormScreenState();
 }
 
+// Données d'un passager
+class _PaxData {
+  final String type; // adult / child / infant
+  final int? expectedAge; // age attendu par Duffel (pour enfants)
+  final TextEditingController firstName  = TextEditingController();
+  final TextEditingController lastName   = TextEditingController();
+  final TextEditingController dob        = TextEditingController();
+  final TextEditingController email      = TextEditingController();
+  final TextEditingController phone      = TextEditingController();
+  final TextEditingController passNum    = TextEditingController();
+  final TextEditingController passExpiry = TextEditingController();
+  final TextEditingController passCountry= TextEditingController();
+  String gender = 'M';
+
+  _PaxData(this.type, {this.expectedAge});
+
+  void dispose() {
+    for (final c in [firstName,lastName,dob,email,phone,passNum,passExpiry,passCountry]) {
+      c.dispose();
+    }
+  }
+
+  Map<String, dynamic> toMap() => PassengerInput(
+    firstName:        firstName.text.trim(),
+    lastName:         lastName.text.trim(),
+    dateOfBirth:      dob.text.trim(),
+    gender:           gender,
+    nationality:      passCountry.text.trim().isNotEmpty
+                        ? passCountry.text.trim().toUpperCase() : 'DZ',
+    passengerType:    type,
+    email:            email.text.trim(),
+    phone:            phone.text.trim(),
+    phoneCountryCode: '213',
+    passportNumber:   passNum.text.trim(),
+    passportExpiry:   passExpiry.text.trim(),
+    passportCountry:  passCountry.text.trim().toUpperCase(),
+  ).toMap();
+}
+
 class _PassengerFormScreenState extends State<PassengerFormScreen> {
   final _api = ApiClient();
   bool _loading = false;
 
-  final _promoCtrl       = TextEditingController();
-  bool  _promoLoading    = false;
+  final _promoCtrl    = TextEditingController();
+  bool  _promoLoading = false;
   Map<String, dynamic>? _promoResult;
 
-  final _firstNameCtrl       = TextEditingController();
-  final _lastNameCtrl        = TextEditingController();
-  final _dobCtrl             = TextEditingController();
-  String _gender             = 'M';
-  final _emailCtrl           = TextEditingController();
-  final _phoneCtrl           = TextEditingController();
-  final _passportNumCtrl     = TextEditingController();
-  final _passportExpiryCtrl  = TextEditingController();
-  final _passportCountryCtrl = TextEditingController();
+  late final List<_PaxData> _passengers;
 
-  PassengerInput _buildPassenger() => PassengerInput(
-    firstName:        _firstNameCtrl.text.trim(),
-    lastName:         _lastNameCtrl.text.trim(),
-    dateOfBirth:      _dobCtrl.text.trim(),
-    gender:           _gender,
-    nationality:      _passportCountryCtrl.text.trim().isNotEmpty
-                        ? _passportCountryCtrl.text.trim().toUpperCase()
-                        : 'DZ',
-    passengerType:    'adult',
-    email:            _emailCtrl.text.trim(),
-    phone:            _phoneCtrl.text.trim(),
-    phoneCountryCode: '213',
-    passportNumber:   _passportNumCtrl.text.trim(),
-    passportExpiry:   _passportExpiryCtrl.text.trim(),
-    passportCountry:  _passportCountryCtrl.text.trim().toUpperCase(),
-  );
+  @override
+  void initState() {
+    super.initState();
+    // Construire la liste depuis l'offre
+    final offerPax = (widget.rawOffer['passengers'] as List?)
+        ?.cast<Map<String, dynamic>>() ?? [];
+    _passengers = offerPax.map((p) {
+      String type = p['type']?.toString() ?? 'adult';
+      if (type.contains('infant')) type = 'infant';
+      if (type.contains('child'))  type = 'child';
+      if (!['adult','child','infant'].contains(type)) type = 'adult';
+      // Recuperer l'age attendu par Duffel pour les enfants
+      final age = p['age'] != null ? int.tryParse(p['age'].toString()) : null;
+      return _PaxData(type, expectedAge: age);
+    }).toList();
+    if (_passengers.isEmpty) _passengers.add(_PaxData('adult'));
+  }
+
+  @override
+  void dispose() {
+    _promoCtrl.dispose();
+    for (final p in _passengers) { p.dispose(); }
+    super.dispose();
+  }
+
+  Future<void> _applyPromo() async {
+    final code = _promoCtrl.text.trim();
+    if (code.isEmpty) return;
+    setState(() => _promoLoading = true);
+    try {
+      final result = await _api.validatePromoCode(code, widget.flight.price);
+      setState(() => _promoResult = result);
+    } catch (e) {
+      setState(() => _promoResult = null);
+      _snack('Code invalide ou expiré', Colors.red);
+    } finally {
+      setState(() => _promoLoading = false);
+    }
+  }
 
   Future<void> _submit({bool acceptPriceChange = false, String paymentMethod = 'cash'}) async {
-    if (_firstNameCtrl.text.isEmpty || _lastNameCtrl.text.isEmpty ||
-        _dobCtrl.text.isEmpty || _emailCtrl.text.isEmpty) {
-      _snack('Veuillez remplir tous les champs obligatoires.', Colors.red);
-      return;
+    // Vérifier que tous les passagers ont les champs obligatoires
+    for (int i = 0; i < _passengers.length; i++) {
+      final p = _passengers[i];
+      if (p.firstName.text.isEmpty || p.lastName.text.isEmpty ||
+          p.dob.text.isEmpty || p.email.text.isEmpty) {
+        _snack('Passager ${i+1} : remplissez tous les champs obligatoires', Colors.red);
+        return;
+      }
+      // Valider que l'age correspond a l'age attendu par Duffel
+      if (p.expectedAge != null && p.dob.text.isNotEmpty) {
+        try {
+          final dob  = DateTime.parse(p.dob.text);
+          final now  = DateTime.now();
+          final age  = now.year - dob.year -
+              ((now.month < dob.month || (now.month == dob.month && now.day < dob.day)) ? 1 : 0);
+          if (age != p.expectedAge) {
+            _snack(
+              'Passager ${i+1} : la date de naissance doit correspondre à ${p.expectedAge} ans',
+              Colors.red,
+            );
+            return;
+          }
+        } catch (_) {}
+      }
     }
 
     final loggedIn = await _api.isLoggedIn;
@@ -73,17 +147,16 @@ class _PassengerFormScreenState extends State<PassengerFormScreen> {
 
     setState(() => _loading = true);
     try {
-      // Si code promo appliqué, remplacer total_amount + transmettre le code
       final offer = Map<String, dynamic>.from(widget.rawOffer);
       final promoCode = _promoResult != null ? (_promoResult!['code'] as String?) : null;
-      if (_promoResult != null) {
-        offer['total_amount'] = _promoResult!['discounted_amount'];
-      }
+      if (_promoResult != null) offer['total_amount'] = _promoResult!['discounted_amount'];
+
+      final passengerMaps = _passengers.map((p) => p.toMap()).toList();
 
       if (widget.forUserId != null) {
         await _api.createReservationForClient(
           flightOffer: offer,
-          passengers: [_buildPassenger().toMap()],
+          passengers: passengerMaps,
           forUserId: widget.forUserId,
           paymentMethod: paymentMethod,
           promoCode: promoCode,
@@ -91,7 +164,7 @@ class _PassengerFormScreenState extends State<PassengerFormScreen> {
       } else {
         await _api.createReservation(
           flightOffer: offer,
-          passengers: [_buildPassenger().toMap()],
+          passengers: passengerMaps,
           acceptPriceChange: acceptPriceChange,
           paymentMethod: paymentMethod,
           promoCode: promoCode,
@@ -99,12 +172,11 @@ class _PassengerFormScreenState extends State<PassengerFormScreen> {
       }
 
       widget.onBookingCreated();
-
       if (!mounted) return;
       if (paymentMethod == 'cib') {
         _snack('Réservation confirmée ! Paiement CIB / Edahabia accepté.', Colors.green);
       } else {
-        _snack('Demande envoyée ! Paiement ultérieurement — en attente de confirmation agent.', Colors.orange);
+        _snack('Demande envoyée ! En attente de confirmation agent.', Colors.orange);
       }
       Navigator.popUntil(context, (route) => route.isFirst);
     } on PriceChangedException catch (e) {
@@ -124,15 +196,11 @@ class _PassengerFormScreenState extends State<PassengerFormScreen> {
       context: context,
       builder: (_) => AlertDialog(
         title: const Text('Prix modifié'),
-        content: Text(
-            'Le prix de ce vol a changé de ${e.oldPrice} à ${e.newPrice} ${e.currency}.\nVoulez-vous continuer ?'),
+        content: Text('Le prix a changé de ${e.oldPrice} à ${e.newPrice} ${e.currency}.\nVoulez-vous continuer ?'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler')),
           TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              _submit(acceptPriceChange: true);
-            },
+            onPressed: () { Navigator.pop(context); _submit(acceptPriceChange: true); },
             child: const Text('Confirmer quand même'),
           ),
         ],
@@ -149,23 +217,7 @@ class _PassengerFormScreenState extends State<PassengerFormScreen> {
       lastDate: future ? now.add(const Duration(days: 365 * 20)) : now,
     );
     if (date != null && mounted) {
-      ctrl.text =
-          '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
-    }
-  }
-
-  Future<void> _applyPromo() async {
-    final code = _promoCtrl.text.trim();
-    if (code.isEmpty) return;
-    setState(() => _promoLoading = true);
-    try {
-      final result = await _api.validatePromoCode(code, widget.flight.price);
-      setState(() => _promoResult = result);
-    } catch (e) {
-      setState(() => _promoResult = null);
-      _snack('Code invalide ou expiré', Colors.red);
-    } finally {
-      setState(() => _promoLoading = false);
+      ctrl.text = '${date.year}-${date.month.toString().padLeft(2,'0')}-${date.day.toString().padLeft(2,'0')}';
     }
   }
 
@@ -175,11 +227,20 @@ class _PassengerFormScreenState extends State<PassengerFormScreen> {
     );
   }
 
+  String _typeLabel(String type) {
+    switch (type) {
+      case 'adult':  return 'Adulte';
+      case 'child':  return 'Enfant';
+      case 'infant': return 'Bébé';
+      default:       return 'Passager';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Informations passager'),
+        title: const Text('Informations passagers'),
         backgroundColor: Colors.white,
         elevation: 0,
       ),
@@ -188,6 +249,7 @@ class _PassengerFormScreenState extends State<PassengerFormScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // En-tête vol
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
@@ -204,8 +266,8 @@ class _PassengerFormScreenState extends State<PassengerFormScreen> {
                     children: [
                       if (_promoResult != null)
                         Text('${widget.flight.price.toStringAsFixed(0)} €',
-                            style: const TextStyle(
-                                fontSize: 12, decoration: TextDecoration.lineThrough, color: Colors.grey)),
+                            style: const TextStyle(fontSize: 12,
+                                decoration: TextDecoration.lineThrough, color: Colors.grey)),
                       Text(
                         _promoResult != null
                             ? '${_promoResult!['discounted_amount']} €'
@@ -217,53 +279,15 @@ class _PassengerFormScreenState extends State<PassengerFormScreen> {
                 ],
               ),
             ),
-            const SizedBox(height: 24),
-            const Text('Passager 1',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 16),
-            _field(_firstNameCtrl, 'Prénom *', Icons.person_outline),
-            _field(_lastNameCtrl, 'Nom *', Icons.person_outline),
-            GestureDetector(
-              onTap: () => _pickDate(_dobCtrl),
-              child: AbsorbPointer(
-                child: _field(_dobCtrl, 'Date de naissance * (AAAA-MM-JJ)', Icons.cake_outlined),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.only(bottom: 14),
-              child: DropdownButtonFormField<String>(
-                initialValue: _gender,
-                decoration: InputDecoration(
-                  labelText: 'Genre',
-                  prefixIcon: const Icon(Icons.wc_outlined, color: Colors.blue),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                  filled: true,
-                  fillColor: Colors.white,
-                ),
-                items: const [
-                  DropdownMenuItem(value: 'M', child: Text('Homme')),
-                  DropdownMenuItem(value: 'F', child: Text('Femme')),
-                ],
-                onChanged: (v) => setState(() => _gender = v ?? 'M'),
-              ),
-            ),
-            _field(_emailCtrl, 'Email *', Icons.email_outlined,
-                type: TextInputType.emailAddress),
-            _field(_phoneCtrl, 'Téléphone', Icons.phone_outlined,
-                type: TextInputType.phone),
-            const Divider(height: 32),
-            const Text('Passeport',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 12),
-            _field(_passportNumCtrl, 'Numéro de passeport', Icons.credit_card_outlined),
-            GestureDetector(
-              onTap: () => _pickDate(_passportExpiryCtrl, future: true),
-              child: AbsorbPointer(
-                child: _field(_passportExpiryCtrl, "Date d'expiration (AAAA-MM-JJ)",
-                    Icons.date_range_outlined),
-              ),
-            ),
-            _field(_passportCountryCtrl, "Pays d'émission (ex: DZ)", Icons.flag_outlined),
+            const SizedBox(height: 20),
+
+            // Formulaire par passager
+            for (int i = 0; i < _passengers.length; i++) ...[
+              _buildPassengerForm(i),
+              const SizedBox(height: 16),
+            ],
+
+            // Code promo
             const Divider(height: 32),
             const Text('Code promo', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
             const SizedBox(height: 12),
@@ -277,8 +301,7 @@ class _PassengerFormScreenState extends State<PassengerFormScreen> {
                       labelText: 'Code promo (optionnel)',
                       prefixIcon: const Icon(Icons.local_offer_outlined, color: Colors.blue),
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                      filled: true,
-                      fillColor: Colors.white,
+                      filled: true, fillColor: Colors.white,
                     ),
                   ),
                 ),
@@ -309,34 +332,29 @@ class _PassengerFormScreenState extends State<PassengerFormScreen> {
                   children: [
                     const Icon(Icons.check_circle, color: Colors.green),
                     const SizedBox(width: 10),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Code "${_promoResult!['code']}" appliqué !',
-                            style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
-                        Text('Économie : ${_promoResult!['saved']} € → ${_promoResult!['discounted_amount']} €',
-                            style: const TextStyle(fontSize: 13)),
-                      ],
-                    ),
+                    Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text('Code "${_promoResult!['code']}" appliqué !',
+                          style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
+                      Text('Économie : ${_promoResult!['saved']} € → ${_promoResult!['discounted_amount']} €',
+                          style: const TextStyle(fontSize: 13)),
+                    ]),
                   ],
                 ),
               ),
             ],
+
+            // Boutons paiement
             const SizedBox(height: 28),
-            const Text('Mode de paiement',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            const Text('Mode de paiement', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
             const SizedBox(height: 14),
-            // Bouton 1 — Payer ultérieurement
             SizedBox(
-              width: double.infinity,
-              height: 54,
+              width: double.infinity, height: 54,
               child: ElevatedButton.icon(
                 onPressed: _loading ? null : () => _submit(paymentMethod: 'cash'),
                 icon: const Icon(Icons.payments_outlined, color: Colors.white),
                 label: _loading
                     ? const CircularProgressIndicator(color: Colors.white)
-                    : const Text('Payer ultérieurement',
-                        style: TextStyle(color: Colors.white, fontSize: 15)),
+                    : const Text('Payer ultérieurement', style: TextStyle(color: Colors.white, fontSize: 15)),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.green.shade600,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
@@ -344,17 +362,14 @@ class _PassengerFormScreenState extends State<PassengerFormScreen> {
               ),
             ),
             const SizedBox(height: 12),
-            // Bouton 2 — Payer avec CIB / Edahabia
             SizedBox(
-              width: double.infinity,
-              height: 54,
+              width: double.infinity, height: 54,
               child: ElevatedButton.icon(
                 onPressed: _loading ? null : () => _submit(paymentMethod: 'cib'),
                 icon: const Icon(Icons.credit_card, color: Colors.white),
                 label: _loading
                     ? const CircularProgressIndicator(color: Colors.white)
-                    : const Text('Payer avec CIB / Edahabia',
-                        style: TextStyle(color: Colors.white, fontSize: 15)),
+                    : const Text('Payer avec CIB / Edahabia', style: TextStyle(color: Colors.white, fontSize: 15)),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF00897B),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
@@ -364,6 +379,90 @@ class _PassengerFormScreenState extends State<PassengerFormScreen> {
             const SizedBox(height: 20),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildPassengerForm(int index) {
+    final p = _passengers[index];
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.blue.shade100),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text('${index + 1}',
+                    style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue.shade700)),
+              ),
+              const SizedBox(width: 10),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(_typeLabel(p.type),
+                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  if (p.expectedAge != null) ...[
+                    Text(
+                      'Âge attendu : ${p.expectedAge} ans',
+                      style: const TextStyle(fontSize: 12, color: Colors.orange, fontWeight: FontWeight.bold),
+                    ),
+                    Text(
+                      'Né(e) vers ${DateTime.now().year - p.expectedAge!}',
+                      style: const TextStyle(fontSize: 11, color: Colors.grey),
+                    ),
+                  ],
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          _field(p.firstName, 'Prénom *', Icons.person_outline),
+          _field(p.lastName, 'Nom *', Icons.person_outline),
+          GestureDetector(
+            onTap: () => _pickDate(p.dob),
+            child: AbsorbPointer(child: _field(p.dob, 'Date de naissance * (AAAA-MM-JJ)', Icons.cake_outlined)),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(bottom: 14),
+            child: DropdownButtonFormField<String>(
+              initialValue: p.gender,
+              decoration: InputDecoration(
+                labelText: 'Genre',
+                prefixIcon: const Icon(Icons.wc_outlined, color: Colors.blue),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                filled: true, fillColor: Colors.white,
+              ),
+              items: const [
+                DropdownMenuItem(value: 'M', child: Text('Homme')),
+                DropdownMenuItem(value: 'F', child: Text('Femme')),
+              ],
+              onChanged: (v) => setState(() => p.gender = v ?? 'M'),
+            ),
+          ),
+          _field(p.email, 'Email *', Icons.email_outlined, type: TextInputType.emailAddress),
+          _field(p.phone, 'Téléphone', Icons.phone_outlined, type: TextInputType.phone),
+          const Padding(
+            padding: EdgeInsets.only(bottom: 10),
+            child: Text('Passeport', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+          _field(p.passNum, 'Numéro de passeport', Icons.credit_card_outlined),
+          GestureDetector(
+            onTap: () => _pickDate(p.passExpiry, future: true),
+            child: AbsorbPointer(child: _field(p.passExpiry, "Date d'expiration (AAAA-MM-JJ)", Icons.date_range_outlined)),
+          ),
+          _field(p.passCountry, "Pays d'émission (ex: DZ)", Icons.flag_outlined),
+        ],
       ),
     );
   }
@@ -379,8 +478,7 @@ class _PassengerFormScreenState extends State<PassengerFormScreen> {
           labelText: label,
           prefixIcon: Icon(icon, color: Colors.blue),
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-          filled: true,
-          fillColor: Colors.white,
+          filled: true, fillColor: Colors.white,
         ),
       ),
     );

@@ -20,7 +20,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
   int _adults   = 1;
   int _children = 0;
-  int _infants  = 0;
   List<int> _childrenAges = [];
   String flightClass = 'Economique';
 
@@ -28,7 +27,6 @@ class _HomeScreenState extends State<HomeScreen> {
     final parts = <String>[];
     if (_adults   > 0) parts.add('$_adults adulte${_adults > 1 ? 's' : ''}');
     if (_children > 0) parts.add('$_children enfant${_children > 1 ? 's' : ''}');
-    if (_infants  > 0) parts.add('$_infants bébé${_infants > 1 ? 's' : ''}');
     return parts.isEmpty ? '1 adulte' : parts.join(', ');
   }
   bool isDirect = false;
@@ -47,7 +45,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _loadRecommendations(String origin) async {
     if (origin.length != 3) return;
-    final results = await api.getRecommendations(origin);
+    final dest = routes.isNotEmpty ? (routes[0]['to'] ?? '') : '';
+    final results = await api.getRecommendations(origin, destination: dest);
     if (mounted) setState(() => _recommendations = results);
   }
 
@@ -127,7 +126,7 @@ class _HomeScreenState extends State<HomeScreen> {
         departureDate: formattedDate,
         adults: _adults,
         children: _children,
-        infants: _infants,
+        infants: 0,
         childrenAges: _childrenAges,
         travelClass: _toTravelClass(flightClass),
         nonStop: isDirect,
@@ -168,7 +167,7 @@ class _HomeScreenState extends State<HomeScreen> {
           builder: (context) => FlightsResultScreen(
             flights: foundFlights,
             rawOffers: validOffers,
-            passengersCount: _adults + _children + _infants,
+            passengersCount: _adults + _children,
             onBookingCreated: widget.onBookingCreated,
           ),
         ),
@@ -223,17 +222,16 @@ class _HomeScreenState extends State<HomeScreen> {
       children: [
         Row(
           children: [
-            const Icon(Icons.auto_awesome, color: Colors.blue, size: 18),
+            const Icon(Icons.airlines, color: Colors.blue, size: 18),
             const SizedBox(width: 8),
-            const Text('Destinations populaires',
+            const Text('Compagnies recommandées',
                 style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
           ],
         ),
         const SizedBox(height: 10),
         ..._recommendations.map((r) {
-          final dest       = r['destination'] as String;
-          final trajet     = r['trajet'] as String;
-          final confidence = ((r['confidence'] as double) * 100).toStringAsFixed(0);
+          final compagnie  = r['compagnie'] as String? ?? '';
+          final confidence = (((r['confidence'] as num?) ?? 0) * 100).toStringAsFixed(0);
           return Card(
             margin: const EdgeInsets.only(bottom: 8),
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -244,21 +242,34 @@ class _HomeScreenState extends State<HomeScreen> {
                   color: Colors.blue.shade50,
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: Text(dest,
-                    style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: Colors.blue,
-                        letterSpacing: 1)),
+                child: const Icon(Icons.flight, color: Colors.blue),
               ),
-              title: Text(trajet,
-                  style: const TextStyle(fontWeight: FontWeight.w600)),
-              subtitle: Text('$confidence% des voyageurs choisissent cette destination'),
-              trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
-              onTap: () {
-                setState(() => routes[0]['to'] = dest);
-                // Lancer la recherche automatiquement
-                Future.delayed(const Duration(milliseconds: 100), _searchFlights);
-              },
+              title: Text(
+                compagnie,
+                style: const TextStyle(fontWeight: FontWeight.w600),
+                overflow: TextOverflow.ellipsis,
+                maxLines: 1,
+              ),
+              subtitle: Text(
+                '$confidence% des voyageurs choisissent cette compagnie',
+                overflow: TextOverflow.ellipsis,
+                maxLines: 2,
+              ),
+              trailing: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  '$confidence%',
+                  style: TextStyle(
+                    color: Colors.blue.shade700,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                  ),
+                ),
+              ),
             ),
           );
         }),
@@ -348,6 +359,8 @@ class _HomeScreenState extends State<HomeScreen> {
         _buildListTile(Icons.flight_land, "Où allez-vous ?",
             routes[index]['to'] ?? 'TUN', (value) {
           setState(() => routes[index]['to'] = value);
+          // Recharger recommandations avec nouvelle destination
+          _loadRecommendations(routes[index]['from'] ?? '');
         }),
         const Divider(indent: 50, height: 1),
         _buildListTile(Icons.calendar_today, "Date",
@@ -410,7 +423,6 @@ class _HomeScreenState extends State<HomeScreen> {
   void _showPassengerDialog() {
     int adults   = _adults;
     int children = _children;
-    int infants  = _infants;
     List<int> childrenAges = List.from(_childrenAges);
 
     showDialog(
@@ -502,16 +514,6 @@ class _HomeScreenState extends State<HomeScreen> {
                     ).toList(),
                   ),
                 ],
-                const Divider(height: 24),
-                _passengerRow('Bébés', '0 – 1 an', infants,
-                    onMinus: infants > 0        ? () => setDlg(() => infants--) : null,
-                    onPlus: infants < adults     ? () => setDlg(() => infants++) : null),
-                if (infants >= adults)
-                  const Padding(
-                    padding: EdgeInsets.only(top: 6),
-                    child: Text('Max 1 bébé par adulte',
-                        style: TextStyle(fontSize: 11, color: Colors.orange)),
-                  ),
               ],
             ),
             actions: [
@@ -521,7 +523,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   setState(() {
                     _adults       = adults;
                     _children     = children;
-                    _infants      = infants;
                     _childrenAges = childrenAges;
                   });
                   Navigator.pop(ctx);

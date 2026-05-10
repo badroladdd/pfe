@@ -1,9 +1,10 @@
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 
-plt.rcParams.update({'font.family': 'DejaVu Sans', 'figure.dpi': 300})
+plt.rcParams.update({'font.family': 'DejaVu Sans', 'figure.dpi': 100})
 
-fig, ax = plt.subplots(figsize=(28, 20))
+# 1024x768 pixels = 10.24x7.68 pouces a 100 dpi
+fig, ax = plt.subplots(figsize=(10.24, 7.68))
 ax.set_xlim(0, 28)
 ax.set_ylim(0, 20)
 ax.axis('off')
@@ -155,7 +156,6 @@ table(ax, 18.5, 13.5, 'passengers', [
     ('born_on',             'DATE',    ''),
     ('email',               'VARCHAR', ''),
     ('phone',               'VARCHAR', ''),
-    ('id_document_type',    'VARCHAR', ''),
     ('id_document_number',  'VARCHAR', ''),
     ('id_document_expiry',  'DATE',    ''),
     ('nationality',         'CHAR(2)', ''),
@@ -272,5 +272,10 @@ ax.text(14, 19.7,
 
 plt.tight_layout(pad=0.5)
 plt.savefig('c:/Users/tassili/Desktop/pfe/schema_relationnel.png',
-            dpi=200, bbox_inches='tight', facecolor='#F5F5F5')
+            dpi=100, bbox_inches=None, facecolor='#F5F5F5')
 print("Sauvegarde: schema_relationnel.png")
+
+# Verifier la resolution
+from PIL import Image
+img = Image.open('c:/Users/tassili/Desktop/pfe/schema_relationnel.png')
+print(f"Resolution: {img.size[0]} x {img.size[1]} pixels")

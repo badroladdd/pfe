@@ -273,7 +273,7 @@ para("Le premier chapitre a pour objectif de presenter le contexte general dans 
 heading("II. Generalites sur le Transport Aerien", 2)
 heading("II.1. Evolution du secteur aerien", 3)
 para("Le transport aerien est l'un des secteurs economiques qui a connu la croissance la plus spectaculaire du XXe siecle. Depuis les premiers vols commerciaux dans les annees 1920, l'aviation civile n'a cesse de se developper pour devenir aujourd'hui un pilier fondamental de la mondialisation economique et du tourisme international.")
-para("Selon l'Organisation de l'Aviation Civile Internationale (OACI), le nombre de passagers aeriens dans le monde a depasse les 4 milliards en 2019, avant la pandemie de COVID-19. La reprise post-pandemique a demontre la resilience du secteur, avec un retour rapide vers les niveaux de trafic historiques des 2023.")
+para("Selon l'Organisation de l'Aviation Civile Internationale (OACI), le nombre de passagers aeriens dans le monde a depasse les 4 milliards en 2019, avant la pandemie de COVID-19 [16]. La reprise post-pandemique a demontre la resilience du secteur, avec un retour rapide vers les niveaux de trafic historiques des 2023.")
 
 heading("II.2. La distribution des billets d'avion", 3)
 para("La distribution des billets d'avion a traverse plusieurs revolutions technologiques :")
@@ -296,7 +296,7 @@ heading("III.2.2. Applications hybrides", 4)
 para("Les applications hybrides sont developpees avec des technologies web puis encapsulees dans un conteneur natif. Des frameworks comme Ionic ou Cordova appartiennent a cette categorie. Elles offrent un developpement plus rapide mais des performances inferieures aux applications natives.")
 
 heading("III.2.3. Applications cross-platform", 4)
-para("Les frameworks cross-platform permettent d'ecrire une seule codebase qui compile en code natif pour chaque plateforme. Flutter (Google), React Native (Meta) et Xamarin (Microsoft) sont les principaux representants. Flutter se distingue par son moteur de rendu graphique propre garantissant des performances proches des applications natives.")
+para("Les frameworks cross-platform permettent d'ecrire une seule codebase qui compile en code natif pour chaque plateforme. Flutter (Google), React Native (Meta) et Xamarin (Microsoft) sont les principaux representants [3]. Flutter se distingue par son moteur de rendu graphique propre garantissant des performances proches des applications natives [7].")
 
 heading("III.3. Avantages des applications mobiles par rapport aux applications web", 3)
 table(
@@ -316,7 +316,7 @@ heading("IV.1. Presentation generale", 3)
 para("L'architecture client/serveur est un modele de communication reseau dans lequel certains noeuds (les clients) envoient des requetes a d'autres noeuds (les serveurs) qui y repondent. Dans notre application, cette architecture se decline comme suit : l'application Flutter installée sur le smartphone constitue le client, le backend Django joue le role du serveur, et la base de donnees MySQL assure la persistance des donnees.")
 
 heading("IV.2. API REST", 3)
-para("REST (Representational State Transfer) est un style architectural pour la conception de services web, formalise par Roy Fielding dans sa these de doctorat en 2000. Notre API respecte les principes REST : interface uniforme, stateless, cacheable et systeme en couches.")
+para("REST (Representational State Transfer) est un style architectural pour la conception de services web, formalise par Roy Fielding dans sa these de doctorat en 2000 [14]. Notre API respecte les principes REST : interface uniforme, stateless, cacheable et systeme en couches [1].")
 table(
     ["Methode HTTP", "Usage dans notre API"],
     [
@@ -328,10 +328,10 @@ table(
 )
 
 heading("IV.3. Authentification par JWT", 3)
-para("Notre API utilise le standard JWT (JSON Web Token) pour l'authentification. Le client envoie ses identifiants, le serveur retourne un access token et un refresh token. Le client joint l'access token dans l'en-tete de chaque requete protegee. Quand l'access token expire, le client utilise le refresh token pour en obtenir un nouveau sans se reconnecter.")
+para("Notre API utilise le standard JWT (JSON Web Token) pour l'authentification [13]. Le client envoie ses identifiants, le serveur retourne un access token et un refresh token. Le client joint l'access token dans l'en-tete de chaque requete protegee. Quand l'access token expire, le client utilise le refresh token pour en obtenir un nouveau sans se reconnecter.")
 
 heading("IV.4. Integration de l'API Duffel", 3)
-para("Duffel est une plateforme technologique britannique qui propose une API moderne permettant aux developpeurs d'acceder directement aux inventaires de vols de plus de 300 compagnies aeriennes mondiales. Notre integration exploite les endpoints suivants :")
+para("Duffel est une plateforme technologique britannique qui propose une API moderne permettant aux developpeurs d'acceder directement aux inventaires de vols de plus de 300 compagnies aeriennes mondiales [10]. Notre integration exploite les endpoints suivants :")
 table(
     ["Endpoint Duffel", "Usage dans notre application"],
     [
@@ -344,7 +344,7 @@ table(
 )
 
 heading("V. UML — Langage de Modelisation Unifie", 2)
-para("UML (Unified Modeling Language) est un langage de modelisation graphique standardise, normalise par l'OMG. Il permet de representer visuellement la structure et le comportement d'un systeme logiciel. Dans ce memoire, nous utilisons trois types de diagrammes : les diagrammes de cas d'utilisation, les diagrammes de classes et les diagrammes de sequence.")
+para("UML (Unified Modeling Language) est un langage de modelisation graphique standardise, normalise par l'OMG [15]. Il permet de representer visuellement la structure et le comportement d'un systeme logiciel. Dans ce memoire, nous utilisons trois types de diagrammes : les diagrammes de cas d'utilisation, les diagrammes de classes et les diagrammes de sequence.")
 
 page_break()
 
@@ -493,7 +493,7 @@ bullet("Systeme d'exploitation : Windows 11 Pro")
 bullet("Appareil de test : Smartphone Android pour les tests sur device physique")
 
 heading("II.2. Flutter", 3)
-para("Flutter est un framework open-source developpe par Google permettant de creer des applications natives compilees pour mobile, web et bureau a partir d'une seule base de code. Il utilise le langage Dart compile en code natif ARM et dispose d'un moteur de rendu graphique propre (Skia/Impeller) independant des widgets natifs de chaque plateforme.")
+para("Flutter est un framework open-source developpe par Google permettant de creer des applications natives compilees pour mobile, web et bureau a partir d'une seule base de code [7]. Il utilise le langage Dart [17] compile en code natif ARM et dispose d'un moteur de rendu graphique propre (Skia/Impeller) independant des widgets natifs de chaque plateforme [3].")
 table(
     ["Package Flutter", "Version", "Usage"],
     [
@@ -505,13 +505,13 @@ table(
 )
 
 heading("II.3. Django REST Framework", 3)
-para("Django est un framework web Python suivant le patron MVT (Model-View-Template). Django REST Framework (DRF) est une extension facilitant la creation d'API RESTful. Nous utilisons notamment les Serializers pour la validation et conversion des donnees, les APIView pour definir les endpoints, le systeme de Permissions pour le controle d'acces, et SimpleJWT pour l'authentification par tokens.")
+para("Django est un framework web Python suivant le patron MVT (Model-View-Template) [2]. Django REST Framework (DRF) est une extension facilitant la creation d'API RESTful [9]. Nous utilisons notamment les Serializers pour la validation et conversion des donnees, les APIView pour definir les endpoints, le systeme de Permissions pour le controle d'acces, et SimpleJWT pour l'authentification par tokens.")
 
 heading("II.4. MySQL", 3)
-para("MySQL est un systeme de gestion de base de donnees relationnelle open-source. Il garantit la coherence des donnees via les contraintes d'integrite referentielle, supporte les transactions ACID pour la fiabilite des operations de reservation, et offre un support natif du type JSON pour stocker les donnees brutes Duffel.")
+para("MySQL est un systeme de gestion de base de donnees relationnelle open-source [11]. Il garantit la coherence des donnees via les contraintes d'integrite referentielle, supporte les transactions ACID pour la fiabilite des operations de reservation, et offre un support natif du type JSON pour stocker les donnees brutes Duffel.")
 
 heading("II.5. API Duffel", 3)
-para("Duffel est une API de distribution aerienne de nouvelle generation permettant d'acceder aux inventaires de plus de 300 compagnies aeriennes via une interface REST moderne. Elle offre un environnement sandbox pour les tests et une documentation claire, ce qui la rend ideale pour un projet academique.")
+para("Duffel est une API de distribution aerienne de nouvelle generation permettant d'acceder aux inventaires de plus de 300 compagnies aeriennes via une interface REST moderne [10]. Elle offre un environnement sandbox pour les tests et une documentation claire, ce qui la rend ideale pour un projet academique.")
 
 heading("II.6. Outils de developpement", 3)
 table(
@@ -527,7 +527,7 @@ table(
 
 heading("III. Architecture de l'Application", 2)
 heading("III.1. Architecture trois tiers", 3)
-para("Notre application suit une architecture trois tiers. Le premier tier est la couche Presentation : l'application Flutter avec ses ecrans mobiles, sa navigation et ses composants UI. Le deuxieme tier est la couche Logique Metier : le backend Django avec ses vues, serializers, services et le client Duffel. Le troisieme tier est la couche Donnees : la base de donnees MySQL.")
+para("Notre application suit une architecture trois tiers [4]. Le premier tier est la couche Presentation : l'application Flutter avec ses ecrans mobiles, sa navigation et ses composants UI. Le deuxieme tier est la couche Logique Metier : le backend Django avec ses vues, serializers, services et le client Duffel. Le troisieme tier est la couche Donnees : la base de donnees MySQL.")
 
 heading("III.2. Structure du projet Flutter", 3)
 bullet("lib/main.dart : Point d'entree, AuthWrapper, routing selon le role")

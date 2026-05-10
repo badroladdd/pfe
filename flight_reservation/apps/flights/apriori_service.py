@@ -5,68 +5,80 @@ from mlxtend.preprocessing import TransactionEncoder
 
 logger = logging.getLogger("flights")
 
+# Codes IATA des aeroports connus (pour distinguer aeroport vs compagnie)
+IATA_AIRPORTS = {
+    'ALG','ORN','CZL','AAE','TLM','BJA','TMR','OGX','GHA','BSK','ELU',
+    'CDG','ORY','BVA','LYS','MRS','NCE','TLS','BOD','NTE','LIL','SXB',
+    'MAD','BCN','AGP','VLC','PMI','FCO','MXP','LIN','VCE','NAP',
+    'LHR','LGW','STN','MAN','EDI','FRA','MUC','BER','DUS','HAM',
+    'AMS','BRU','ZRH','GVA','IST','SAW','AYT','ESB',
+    'DXB','AUH','DOH','RUH','JED','MED','CMN','RAK','TNG','FEZ',
+    'TUN','SFA','MIR','CAI','HRG','SSH','TIP','YUL','YYZ',
+    'JFK','LAX','ORD','PEK','PVG','HND','SIN','BOM','DEL',
+}
 
-def get_recommendations(origin: str, min_support: float = 0.05, min_confidence: float = 0.3) -> list:
+
+def get_recommendations(origin: str, destination: str = '',
+                        min_support: float = 0.05,
+                        min_confidence: float = 0.3) -> list:
     """
-    Applique l'algorithme A priori sur les reservations confirmees.
-    Retourne les destinations les plus souvent associees a l'origine donnee.
+    Regle A priori : {Aeroport_Depart, Aeroport_Arrivee} -> Compagnie_Aerienne
+
+    Exemple : {ALG, CDG} -> Air France (confiance: 70%)
 
     Args:
-        origin:         Code IATA de l'aeroport d'origine (ex: 'ALG')
-        min_support:    Seuil minimum de support (defaut 5%)
-        min_confidence: Seuil minimum de confiance (defaut 30%)
-
-    Returns:
-        Liste des destinations recommandees triees par confiance decroissante.
+        origin:         Code IATA depart (ex: 'ALG')
+        destination:    Code IATA arrivee (ex: 'CDG') — optionnel
+        min_support:    Seuil minimum de support
+        min_confidence: Seuil minimum de confiance
     """
     from apps.reservations.models import Reservation
 
-    # ── 1. Recuperer les reservations confirmees ──────────────────────────────
+    # 1. Recuperer les reservations confirmees
     reservations = list(
         Reservation.objects.filter(status="confirmed")
         .values("user_id", "raw_duffel_order")
     )
 
-    logger.info("Apriori: %d reservations confirmees trouvees", len(reservations))
+    logger.info("Apriori: %d reservations confirmees", len(reservations))
 
     if len(reservations) < 5:
-        logger.info("Apriori: pas assez de donnees (minimum 5 reservations)")
         return []
 
-    # ── 2. Construire les transactions par utilisateur ─────────────────────────
-    user_trips: dict = {}
+    # 2. Construire les transactions : {depart, arrivee, compagnie}
+    transactions = []
     for r in reservations:
-        uid  = str(r["user_id"])
-        data = r["raw_duffel_order"] or {}
+        data   = r["raw_duffel_order"] or {}
         slices = data.get("slices", [])
         if not slices:
             continue
 
         first_seg = (slices[0].get("segments") or [{}])[0]
         last_seg  = (slices[0].get("segments") or [{}])[-1]
-        orig = (first_seg.get("origin")      or {}).get("iata_code", "")
-        dest = (last_seg.get("destination")  or {}).get("iata_code", "")
 
-        if orig and dest and orig != dest:
-            trajet = f"{orig}-{dest}"
-            user_trips.setdefault(uid, set()).add(trajet)
+        orig    = (first_seg.get("origin")      or {}).get("iata_code", "")
+        dest    = (last_seg.get("destination")  or {}).get("iata_code", "")
+        carrier = (first_seg.get("marketing_carrier") or {}).get("name", "")
+        if not carrier:
+            carrier = (first_seg.get("operating_carrier") or {}).get("name", "")
 
-    transactions = [list(v) for v in user_trips.values() if len(v) >= 1]
-    logger.info("Apriori: %d utilisateurs distincts", len(transactions))
+        if orig and dest and carrier and orig != dest:
+            transactions.append([orig, dest, carrier])
+
+    logger.info("Apriori: %d transactions valides", len(transactions))
 
     if len(transactions) < 3:
         return []
 
-    # ── 3. Encoder les transactions ───────────────────────────────────────────
+    # 3. Encoder et appliquer A priori
     te       = TransactionEncoder()
     te_array = te.fit_transform(transactions)
     df       = pd.DataFrame(te_array, columns=te.columns_)
 
-    # ── 4. Appliquer A priori ─────────────────────────────────────────────────
     try:
         frequent_itemsets = apriori(df, min_support=min_support, use_colnames=True)
         if frequent_itemsets.empty:
-            logger.info("Apriori: aucun itemset frequent trouve")
+            logger.info("Apriori: aucun itemset frequent")
             return []
 
         rules = association_rules(
@@ -81,32 +93,35 @@ def get_recommendations(origin: str, min_support: float = 0.05, min_confidence: 
     if rules.empty:
         return []
 
-    # ── 5. Filtrer les regles pour l'origine demandee ─────────────────────────
+    # 4. Filtrer : antecedent contient origine (+ destination si fournie)
+    #              consequent est une compagnie (pas un aeroport)
     results = []
     seen    = set()
-    for _, rule in rules.iterrows():
-        antecedents = list(rule["antecedents"])
-        consequents = list(rule["consequents"])
 
-        for ant in antecedents:
-            if not ant.startswith(origin.upper()):
+    for _, rule in rules.iterrows():
+        ants = list(rule["antecedents"])
+        cons = list(rule["consequents"])
+
+        # L'antecedent doit contenir l'origine
+        if origin.upper() not in [a.upper() for a in ants]:
+            continue
+
+        # Si destination fournie, elle doit aussi etre dans l'antecedent
+        if destination and destination.upper() not in [a.upper() for a in ants]:
+            continue
+
+        for c in cons:
+            # Le consequent doit etre une compagnie, pas un aeroport
+            if c.upper() in IATA_AIRPORTS or c in seen:
                 continue
-            for cons in consequents:
-                parts = cons.split("-")
-                if len(parts) != 2:
-                    continue
-                dest_iata = parts[1]
-                if dest_iata in seen or dest_iata == origin.upper():
-                    continue
-                seen.add(dest_iata)
-                results.append({
-                    "destination": dest_iata,
-                    "trajet":      cons,
-                    "support":     round(float(rule["support"]),    3),
-                    "confidence":  round(float(rule["confidence"]), 3),
-                    "lift":        round(float(rule["lift"]),        3),
-                })
+            seen.add(c)
+            results.append({
+                "compagnie":  c,
+                "support":    round(float(rule["support"]),    3),
+                "confidence": round(float(rule["confidence"]), 3),
+                "lift":       round(float(rule["lift"]),        3),
+            })
 
     results.sort(key=lambda x: x["confidence"], reverse=True)
-    logger.info("Apriori: %d recommandations pour %s", len(results), origin)
-    return results[:5]
+    logger.info("Apriori: %d compagnies pour {%s, %s}", len(results), origin, destination)
+    return results[:3]

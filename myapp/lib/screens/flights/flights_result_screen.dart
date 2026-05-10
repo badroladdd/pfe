@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:myapp/models/flight.dart';
 import 'package:myapp/screens/flights/flight_detail_screen.dart';
 
-class FlightsResultScreen extends StatelessWidget {
+class FlightsResultScreen extends StatefulWidget {
   final List<Flight> flights;
   final List<Map<String, dynamic>> rawOffers;
   final int passengersCount;
@@ -19,7 +19,88 @@ class FlightsResultScreen extends StatelessWidget {
   });
 
   @override
+  State<FlightsResultScreen> createState() => _FlightsResultScreenState();
+}
+
+class _FlightsResultScreenState extends State<FlightsResultScreen> {
+  String _sortOrder    = 'asc';   // 'asc' | 'desc'
+  String? _filterCarrier;         // null = toutes les compagnies
+
+  // Liste des compagnies disponibles
+  List<String> get _carriers {
+    final set = <String>{};
+    for (final offer in widget.rawOffers) {
+      final carrier = (offer['_summary'] as Map<String, dynamic>?)?['carrier']?.toString() ?? '';
+      if (carrier.isNotEmpty) set.add(carrier);
+    }
+    return ['Toutes', ...set.toList()..sort()];
+  }
+
+  // Vols filtrés et triés
+  List<int> get _filteredIndices {
+    List<int> indices = List.generate(widget.flights.length, (i) => i);
+
+    // Filtre par compagnie
+    if (_filterCarrier != null && _filterCarrier != 'Toutes') {
+      indices = indices.where((i) {
+        final carrier = (widget.rawOffers[i]['_summary'] as Map<String, dynamic>?)?['carrier']?.toString() ?? '';
+        return carrier == _filterCarrier;
+      }).toList();
+    }
+
+    // Tri par prix
+    indices.sort((a, b) {
+      final pa = widget.flights[a].price;
+      final pb = widget.flights[b].price;
+      return _sortOrder == 'asc' ? pa.compareTo(pb) : pb.compareTo(pa);
+    });
+
+    return indices;
+  }
+
+  void _showCarrierFilter() {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (_) => StatefulBuilder(
+        builder: (ctx, setModal) => Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Filtrer par compagnie',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 16),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: _carriers.map((c) {
+                  final selected = (_filterCarrier ?? 'Toutes') == c;
+                  return ChoiceChip(
+                    label: Text(c),
+                    selected: selected,
+                    selectedColor: Colors.blue.shade100,
+                    onSelected: (_) {
+                      setState(() => _filterCarrier = c == 'Toutes' ? null : c);
+                      Navigator.pop(ctx);
+                    },
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final indices = _filteredIndices;
+
     return Scaffold(
       backgroundColor: const Color(0xFFF2F4F7),
       appBar: AppBar(
@@ -28,35 +109,112 @@ class FlightsResultScreen extends StatelessWidget {
         foregroundColor: Colors.black,
         elevation: 0,
       ),
-      body: ListView.builder(
-        padding: const EdgeInsets.all(16),
-        itemCount: flights.length,
-        itemBuilder: (context, index) {
-          final flight = flights[index];
-          final summary = rawOffers[index]['_summary'] as Map<String, dynamic>?;
-          final carrier = summary?['carrier']?.toString() ?? '';
-          final isRoundTrip = summary?['is_round_trip'] == true;
-          final returnInfo = summary?['return'] as Map<String, dynamic>?;
-
-          return _FlightCard(
-            flight: flight,
-            carrier: carrier,
-            currency: summary?['currency']?.toString() ?? 'DZD',
-            isRoundTrip: isRoundTrip,
-            returnInfo: returnInfo,
-            onBook: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => FlightDetailScreen(
-                  rawOffer: rawOffers[index],
-                  flight: flight,
-                  onBookingCreated: onBookingCreated,
-                  forUserId: forUserId,
+      body: Column(
+        children: [
+          // ── Barre de filtres ──────────────────────────────────────────
+          Container(
+            color: Colors.white,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Row(
+              children: [
+                // Tri par prix
+                Expanded(
+                  child: SegmentedButton<String>(
+                    segments: const [
+                      ButtonSegment(
+                        value: 'asc',
+                        icon: Icon(Icons.arrow_upward, size: 14),
+                        label: Text('Prix croissant', style: TextStyle(fontSize: 11)),
+                      ),
+                      ButtonSegment(
+                        value: 'desc',
+                        icon: Icon(Icons.arrow_downward, size: 14),
+                        label: Text('Prix décroissant', style: TextStyle(fontSize: 11)),
+                      ),
+                    ],
+                    selected: {_sortOrder},
+                    onSelectionChanged: (v) => setState(() => _sortOrder = v.first),
+                    style: ButtonStyle(
+                      visualDensity: VisualDensity.compact,
+                    ),
+                  ),
                 ),
+                const SizedBox(width: 8),
+                // Filtre compagnie — bouton
+                OutlinedButton.icon(
+                  onPressed: () => _showCarrierFilter(),
+                  icon: const Icon(Icons.airlines, size: 16),
+                  label: Text(
+                    _filterCarrier != null && _filterCarrier != 'Toutes'
+                        ? _filterCarrier!
+                        : 'Compagnie',
+                    style: const TextStyle(fontSize: 11),
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    side: BorderSide(
+                      color: _filterCarrier != null && _filterCarrier != 'Toutes'
+                          ? Colors.blue
+                          : Colors.grey.shade400,
+                    ),
+                    foregroundColor: _filterCarrier != null && _filterCarrier != 'Toutes'
+                        ? Colors.blue
+                        : Colors.black87,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // Compteur
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                '${indices.length} vol${indices.length > 1 ? "s" : ""} trouvé${indices.length > 1 ? "s" : ""}',
+                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
               ),
             ),
-          );
-        },
+          ),
+          // ── Liste des vols ────────────────────────────────────────────
+          Expanded(
+            child: indices.isEmpty
+                ? const Center(child: Text('Aucun vol pour ces filtres'))
+                : ListView.builder(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                    itemCount: indices.length,
+                    itemBuilder: (context, i) {
+                      final idx    = indices[i];
+                      final flight = widget.flights[idx];
+                      final summary = widget.rawOffers[idx]['_summary'] as Map<String, dynamic>?;
+                      final carrier     = summary?['carrier']?.toString() ?? '';
+                      final isRoundTrip = summary?['is_round_trip'] == true;
+                      final returnInfo  = summary?['return'] as Map<String, dynamic>?;
+
+                      return _FlightCard(
+                        flight: flight,
+                        carrier: carrier,
+                        currency: summary?['currency']?.toString() ?? 'EUR',
+                        isRoundTrip: isRoundTrip,
+                        returnInfo: returnInfo,
+                        onBook: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => FlightDetailScreen(
+                              rawOffer: widget.rawOffers[idx],
+                              flight: flight,
+                              onBookingCreated: widget.onBookingCreated,
+                              forUserId: widget.forUserId,
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ],
       ),
     );
   }
@@ -231,18 +389,23 @@ class _FlightCard extends StatelessWidget {
           children: [
             // Airline name box
             Container(
-              width: 52,
-              height: 36,
+              constraints: const BoxConstraints(maxWidth: 110, minWidth: 70),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                color: Colors.grey.shade100,
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: Colors.grey.shade200),
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.blue.shade100),
               ),
               child: Text(
-                carrier.isNotEmpty ? carrier.substring(0, carrier.length.clamp(0, 6)) : '✈',
-                style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.black87),
+                carrier.isNotEmpty ? carrier : '✈',
+                style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.blue),
                 textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
               ),
             ),
             const SizedBox(width: 10),
