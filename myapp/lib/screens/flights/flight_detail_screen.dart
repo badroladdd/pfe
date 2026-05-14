@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:myapp/models/flight.dart';
 import 'package:myapp/screens/flights/passenger_form_screen.dart';
+import 'package:myapp/utils/currency.dart';
 
 class FlightDetailScreen extends StatelessWidget {
   final Map<String, dynamic> rawOffer;
@@ -456,7 +457,6 @@ class FlightDetailScreen extends StatelessWidget {
   Widget _buildBottomBar(BuildContext context) {
     final summary  = rawOffer['_summary'] as Map<String, dynamic>?;
     final price    = summary?['total_price']?.toString() ?? rawOffer['total_amount']?.toString() ?? '0';
-    final currency = summary?['currency']?.toString()    ?? rawOffer['total_currency']?.toString() ?? '';
     final priceVal = double.tryParse(price) ?? 0;
 
     return Container(
@@ -474,7 +474,7 @@ class FlightDetailScreen extends StatelessWidget {
             children: [
               const Text('Prix total', style: TextStyle(fontSize: 12, color: Colors.black54)),
               Text(
-                '${_fmtPrice(priceVal)} $currency',
+                formatDzd(priceVal),
                 style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
               ),
             ],
@@ -503,14 +503,4 @@ class FlightDetailScreen extends StatelessWidget {
     );
   }
 
-  String _fmtPrice(double price) {
-    final parts   = price.toStringAsFixed(2).split('.');
-    final intPart = parts[0];
-    final buf     = StringBuffer();
-    for (int i = 0; i < intPart.length; i++) {
-      if (i > 0 && (intPart.length - i) % 3 == 0) buf.write('\u202F');
-      buf.write(intPart[i]);
-    }
-    return '${buf.toString()},${parts[1]}';
-  }
 }

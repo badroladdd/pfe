@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:myapp/api.dart';
+import 'package:myapp/utils/currency.dart';
 import 'package:myapp/utils/ticket_pdf.dart';
 
 class MyTripsScreen extends StatefulWidget {
@@ -109,7 +110,6 @@ class _MyTripsScreenState extends State<MyTripsScreen> {
                           final r = _reservations[index];
                           final ref = r['booking_reference'] as String? ?? r['id']?.toString() ?? 'N/A';
                           final amount = r['total_amount']?.toString() ?? '0';
-                          final currency = r['currency'] as String? ?? 'EUR';
                           final createdAt = r['created_at'] as String? ?? '';
                           final status = r['status'] as String? ?? 'confirmed';
                           DateTime? date;
@@ -160,7 +160,7 @@ class _MyTripsScreenState extends State<MyTripsScreen> {
                                       Column(
                                         crossAxisAlignment: CrossAxisAlignment.end,
                                         children: [
-                                          Text('$amount $currency',
+                                          Text(formatDzdFromString(amount),
                                               style: TextStyle(
                                                   color: Colors.green.shade700,
                                                   fontWeight: FontWeight.bold)),

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:myapp/api.dart';
+import 'package:myapp/utils/currency.dart';
 
 class AdminReservationsScreen extends StatefulWidget {
   const AdminReservationsScreen({super.key});
@@ -144,7 +145,7 @@ class _AdminReservationsScreenState extends State<AdminReservationsScreen> {
                       ? r['booking_reference'] : r['id'].toString().substring(0, 8);
                   final route = '${r['origin_iata'] ?? '?'} → ${r['destination_iata'] ?? '?'}';
                   final amount = r['total_amount'] != null
-                      ? '${r['total_amount']} ${r['currency'] ?? ''}'
+                      ? formatDzdFromString(r['total_amount'].toString())
                       : '';
 
                   return Card(

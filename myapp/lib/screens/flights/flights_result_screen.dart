@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:myapp/models/flight.dart';
 import 'package:myapp/screens/flights/flight_detail_screen.dart';
+import 'package:myapp/utils/currency.dart';
 
 class FlightsResultScreen extends StatefulWidget {
   final List<Flight> flights;
@@ -196,7 +197,6 @@ class _FlightsResultScreenState extends State<FlightsResultScreen> {
                       return _FlightCard(
                         flight: flight,
                         carrier: carrier,
-                        currency: summary?['currency']?.toString() ?? 'EUR',
                         isRoundTrip: isRoundTrip,
                         returnInfo: returnInfo,
                         onBook: () => Navigator.push(
@@ -223,7 +223,6 @@ class _FlightsResultScreenState extends State<FlightsResultScreen> {
 class _FlightCard extends StatelessWidget {
   final Flight flight;
   final String carrier;
-  final String currency;
   final bool isRoundTrip;
   final Map<String, dynamic>? returnInfo;
   final VoidCallback onBook;
@@ -231,7 +230,6 @@ class _FlightCard extends StatelessWidget {
   const _FlightCard({
     required this.flight,
     required this.carrier,
-    required this.currency,
     required this.isRoundTrip,
     required this.returnInfo,
     required this.onBook,
@@ -329,7 +327,7 @@ class _FlightCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 Text(
-                  '${_formatPrice(flight.price)} $currency',
+                  formatDzd(flight.price),
                   style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                 ),
                 ElevatedButton(
@@ -349,18 +347,6 @@ class _FlightCard extends StatelessWidget {
     );
   }
 
-  String _formatPrice(double price) {
-    final p = price.toStringAsFixed(2);
-    // Format with space thousands separator
-    final parts = p.split('.');
-    final intPart = parts[0];
-    final buffer = StringBuffer();
-    for (int i = 0; i < intPart.length; i++) {
-      if (i > 0 && (intPart.length - i) % 3 == 0) buffer.write('\u202F');
-      buffer.write(intPart[i]);
-    }
-    return '${buffer.toString()},${parts[1]}';
-  }
 
   Widget _buildLeg({
     String? label,

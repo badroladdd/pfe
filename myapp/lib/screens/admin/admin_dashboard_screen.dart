@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:myapp/api.dart';
+import 'package:myapp/utils/currency.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
   const AdminDashboardScreen({super.key});
@@ -63,7 +64,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                 const SizedBox(width: 12),
                 Expanded(child: _statCard('En attente', _stats!['pending_reservations'].toString(), Icons.hourglass_empty, Colors.orange, small: true)),
               ]),
-              _statCard('Revenus confirmés', '${_stats!['total_revenue']} EUR', Icons.euro, Colors.teal),
+              _statCard('Revenus confirmés', formatDzdFromString(_stats!['total_revenue']?.toString() ?? '0'), Icons.euro, Colors.teal),
             ],
           ],
         ),

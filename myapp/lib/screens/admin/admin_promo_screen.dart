@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:myapp/api.dart';
+import 'package:myapp/utils/currency.dart';
 
 class AdminPromoScreen extends StatefulWidget {
   const AdminPromoScreen({super.key});
@@ -91,7 +92,7 @@ class _AdminPromoScreenState extends State<AdminPromoScreen> {
                   decoration: const InputDecoration(labelText: 'Type de réduction'),
                   items: const [
                     DropdownMenuItem(value: 'percent', child: Text('Pourcentage (%)')),
-                    DropdownMenuItem(value: 'fixed',   child: Text('Montant fixe (€)')),
+                    DropdownMenuItem(value: 'fixed',   child: Text('Montant fixe (DZD)')),
                   ],
                   onChanged: (v) => setDlg(() => discountType = v!),
                 ),
@@ -100,7 +101,7 @@ class _AdminPromoScreenState extends State<AdminPromoScreen> {
                   controller: valueCtrl,
                   keyboardType: TextInputType.number,
                   decoration: InputDecoration(
-                    labelText: discountType == 'percent' ? 'Valeur (%)' : 'Valeur (€)',
+                    labelText: discountType == 'percent' ? 'Valeur (%)' : 'Valeur (DZD)',
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -250,7 +251,7 @@ class _PromoCard extends StatelessWidget {
               runSpacing: 6,
               children: [
                 _chip(
-                  type == 'percent' ? '-$value%' : '-$value€',
+                  type == 'percent' ? '-$value%' : '-${formatDzdFromString(value)} remise',
                   Icons.local_offer_outlined,
                   Colors.blue,
                 ),

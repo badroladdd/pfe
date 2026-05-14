@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:myapp/api.dart';
 import 'package:myapp/models/flight.dart';
 import 'package:myapp/screens/auth/login_screen.dart';
+import 'package:myapp/utils/currency.dart';
 
 class PassengerFormScreen extends StatefulWidget {
   final Map<String, dynamic> rawOffer;
@@ -196,7 +197,7 @@ class _PassengerFormScreenState extends State<PassengerFormScreen> {
       context: context,
       builder: (_) => AlertDialog(
         title: const Text('Prix modifié'),
-        content: Text('Le prix a changé de ${e.oldPrice} à ${e.newPrice} ${e.currency}.\nVoulez-vous continuer ?'),
+        content: Text('Le prix a changé de ${formatDzdFromString(e.oldPrice)} à ${formatDzdFromString(e.newPrice)}.\nVoulez-vous continuer ?'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler')),
           TextButton(
@@ -265,13 +266,13 @@ class _PassengerFormScreenState extends State<PassengerFormScreen> {
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
                       if (_promoResult != null)
-                        Text('${widget.flight.price.toStringAsFixed(0)} €',
+                        Text(formatDzd(widget.flight.price),
                             style: const TextStyle(fontSize: 12,
                                 decoration: TextDecoration.lineThrough, color: Colors.grey)),
                       Text(
                         _promoResult != null
-                            ? '${_promoResult!['discounted_amount']} €'
-                            : '${widget.flight.price.toStringAsFixed(0)} €',
+                            ? formatDzdFromString(_promoResult!['discounted_amount'].toString())
+                            : formatDzd(widget.flight.price),
                         style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue.shade700),
                       ),
                     ],
@@ -335,7 +336,7 @@ class _PassengerFormScreenState extends State<PassengerFormScreen> {
                     Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                       Text('Code "${_promoResult!['code']}" appliqué !',
                           style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
-                      Text('Économie : ${_promoResult!['saved']} € → ${_promoResult!['discounted_amount']} €',
+                      Text('Économie : ${formatDzdFromString(_promoResult!['saved'].toString())} → ${formatDzdFromString(_promoResult!['discounted_amount'].toString())}',
                           style: const TextStyle(fontSize: 13)),
                     ]),
                   ],

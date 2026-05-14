@@ -568,44 +568,52 @@ para("Une fois la reservation confirmee, le client peut telecharger son billet e
 heading("IV.5. Codes Promotionnels", 3)
 para("L'administrateur cree des codes promo caracterises par un code unique, un type de reduction (pourcentage ou montant fixe), une valeur, un nombre maximum d'utilisations et une date d'expiration. Lors de l'application, le backend verifie la validite du code et calcule le montant reduit. Apres confirmation, le compteur d'utilisation est incremente automatiquement.")
 
-heading("V. Algorithme A priori — Systeme de Recommandation", 2)
+heading("V. Algorithme A priori — Systeme de Recommandation de Compagnie", 2)
 heading("V.1. Presentation de l'algorithme A priori", 3)
 para("L'algorithme A priori est un algorithme de fouille de donnees (data mining) propose par Agrawal et Srikant en 1994 [5]. Il permet d'extraire des regles d'association a partir d'un ensemble de transactions, c'est-a-dire de decouvrir des relations entre des elements qui apparaissent frequemment ensemble dans les donnees. Cet algorithme est largement documente dans la litterature du domaine, notamment dans l'ouvrage de Han, Kamber et Pei [6].")
-para("Dans notre application, nous appliquons cet algorithme sur l'historique des reservations confirmees afin de generer des recommandations intelligentes de destinations pour les utilisateurs. L'implementation est realisee en Python grace a la bibliotheque MLxtend [12], qui fournit une implementation optimisee de l'algorithme A priori. Ce systeme de recommandation personnalise l'experience de recherche en suggerant automatiquement les destinations les plus pertinentes en fonction des habitudes de voyage de l'ensemble des clients.")
+para("Dans notre application, la regle d'association implementee est : {Aeroport de Depart, Aeroport d'Arrivee} -> Compagnie Aerienne. Cette regle non-triviale permet de recommander la compagnie la plus choisie par les voyageurs pour un trajet specifique. L'implementation est realisee en Python grace a la bibliotheque MLxtend [12].")
 
-heading("V.2. Concepts fondamentaux", 3)
+heading("V.2. Regle d'association implementee", 3)
+para("La regle centrale de notre systeme est :")
+para("{ALG, CDG} -> Air Algerie  (confiance : 80%)", bold=True)
+para("Cette regle signifie : parmi les clients qui ont reserve un vol depuis ALG vers CDG, 80% ont choisi la compagnie Air Algerie. Il s'agit d'une regle non-triviale car :")
+bullet("Elle combine deux elements (depart + arrivee) pour predire un troisieme (compagnie)")
+bullet("Elle n'est pas evidente : plusieurs compagnies operent sur ALG-CDG (Air Algerie, Air France, Iberia...)")
+bullet("Le lift superieur a 1 confirme que la regle est plus forte que le hasard")
+
+heading("V.3. Concepts fondamentaux", 3)
 para("L'algorithme repose sur trois metriques essentielles :")
-bullet("Support : frequence d'apparition d'un ensemble de destinations dans toutes les transactions. Un support de 20% signifie que 20% des clients ont reserve cette destination.")
-bullet("Confiance : probabilite conditionnelle que la destination B soit reservee sachant que la destination A l'a ete. Une confiance de 80% indique que 80% des clients ayant reserve A ont aussi reserve B.")
-bullet("Lift : mesure la force reelle de la regle par rapport au hasard. Un lift superieur a 1 indique une correlation positive et significative entre les destinations.")
+bullet("Support : frequence d'apparition de la combinaison {depart, arrivee, compagnie} dans toutes les transactions. Un support de 35% signifie que 35% des reservations concernent ce triplet.")
+bullet("Confiance : probabilite que la compagnie C soit choisie sachant que le trajet {A, B} est reserve. Une confiance de 80% indique que 80% des clients du trajet ALG-CDG choisissent Air Algerie.")
+bullet("Lift : mesure la force de la regle par rapport au hasard. Un lift de 2.1 signifie que la regle est 2.1 fois plus forte que si le choix etait aleatoire.")
 table(
     ["Metrique", "Formule", "Interpretation"],
     [
-        ["Support",    "nb(A et B) / nb total",  "Frequence de la paire dans les donnees"],
-        ["Confiance",  "Support(A et B) / Support(A)", "Probabilite de B si A est present"],
-        ["Lift",       "Confiance(A->B) / Support(B)", "Force de la regle vs le hasard"],
+        ["Support",    "nb({A,B,C}) / nb total",        "Frequence du triplet dans les donnees"],
+        ["Confiance",  "Support({A,B,C}) / Support({A,B})", "Probabilite de C si le trajet A-B est pris"],
+        ["Lift",       "Confiance / Support(C)",          "Force de la regle vs le hasard"],
     ]
 )
 
-heading("V.3. Application dans notre systeme", 3)
-para("Le flux d'execution de l'algorithme dans notre application se deroule en cinq etapes :")
-bullet("Etape 1 — Extraction des donnees : Le systeme recupere toutes les reservations confirmees depuis la base de donnees MySQL, en extrayant les codes IATA d'origine et de destination de chaque reservation.")
-bullet("Etape 2 — Construction des transactions : Les reservations sont regroupees par utilisateur pour former des transactions. Chaque transaction represente l'ensemble des trajets effectues par un client.")
-bullet("Etape 3 — Encodage et application A priori : Les transactions sont encodees au format binaire (TransactionEncoder), puis l'algorithme A priori est applique avec un seuil de support minimum de 5% et de confiance minimum de 30%.")
-bullet("Etape 4 — Filtrage des regles : Seules les regles dont l'antecedent correspond a l'origine saisie par l'utilisateur sont conservees et triees par confiance decroissante.")
-bullet("Etape 5 — Affichage dans Flutter : Les cinq meilleures destinations recommandees sont affichees sous le formulaire de recherche, avec leur taux de confiance.")
-para("Ce module est accessible via l'endpoint GET /api/v1/recommendations/?origin=ALG et retourne une liste de destinations avec leurs metriques de support, confiance et lift. L'interface Flutter permet a l'utilisateur de selectionner directement une destination recommandee pour pre-remplir le formulaire de recherche.")
+heading("V.4. Application dans notre systeme", 3)
+para("Le flux d'execution de l'algorithme se deroule en cinq etapes :")
+bullet("Etape 1 — Extraction : Le systeme recupere toutes les reservations confirmees depuis MySQL. Pour chaque reservation, il extrait : l'aeroport de depart, l'aeroport d'arrivee et la compagnie aerienne depuis le champ raw_duffel_order.")
+bullet("Etape 2 — Construction des transactions : Chaque reservation forme une transaction contenant trois elements : {depart, arrivee, compagnie}. Par exemple : {ALG, CDG, Air Algerie}.")
+bullet("Etape 3 — Application A priori : Les transactions sont encodees en format binaire (TransactionEncoder) puis l'algorithme est applique avec un support minimum de 5% et une confiance minimum de 30%.")
+bullet("Etape 4 — Filtrage : Seules les regles dont l'antecedent contient a la fois l'aeroport de depart ET l'aeroport d'arrivee saisis par l'utilisateur sont conservees. Le consequent doit etre une compagnie aerienne (non un aeroport).")
+bullet("Etape 5 — Affichage : Les trois meilleures compagnies recommandees s'affichent sous le formulaire de recherche avec leur taux de confiance, avant meme de lancer la recherche.")
+para("Ce module est accessible via GET /api/v1/recommendations/?origin=ALG&destination=CDG et retourne les compagnies les plus choisies pour ce trajet specifique.")
 
-heading("V.4. Exemple de resultat", 3)
+heading("V.5. Exemple de resultat", 3)
 table(
-    ["Origine", "Destination recommandee", "Support", "Confiance", "Lift"],
+    ["Trajet", "Compagnie recommandee", "Support", "Confiance", "Lift"],
     [
-        ["ALG", "CDG (Paris)",     "35%", "82%", "2.1"],
-        ["ALG", "TUN (Tunis)",     "28%", "75%", "1.9"],
-        ["ALG", "IST (Istanbul)",  "18%", "60%", "1.5"],
+        ["{ALG, CDG}", "Air Algerie",      "31%", "80%", "1.8"],
+        ["{ALG, TUN}", "Tunisair",         "40%", "40%", "1.5"],
+        ["{ALG, TUN}", "Iberia",           "25%", "40%", "1.3"],
     ]
 )
-para("Interpretation : 82% des clients ayant reserve un vol ALG-CDG ont egalement reserve un vol CDG-ALG (retour), ce qui suggere automatiquement le vol retour comme destination.")
+para("Interpretation : Pour le trajet ALG->CDG, 80% des clients ont choisi Air Algerie — l'application recommande donc cette compagnie en priorite. Pour ALG->TUN, Tunisair et Iberia sont recommandees a egalite (40% chacune). Ces recommandations apparaissent automatiquement des que l'utilisateur saisit son itineraire, avant meme de lancer la recherche de vols.")
 
 heading("VI. Tests et Validation", 2)
 table(
