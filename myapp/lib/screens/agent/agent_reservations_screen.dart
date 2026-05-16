@@ -161,10 +161,14 @@ class _AgentReservationsScreenState extends State<AgentReservationsScreen> {
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Text(ref,
-                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                              Flexible(
+                                child: Text(ref,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                              ),
+                              const SizedBox(width: 8),
                               Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
                                 decoration: BoxDecoration(
                                   color: _statusColor(statusStr).withValues(alpha: 0.1),
                                   borderRadius: BorderRadius.circular(20),
@@ -182,11 +186,19 @@ class _AgentReservationsScreenState extends State<AgentReservationsScreen> {
                             children: [
                               const Icon(Icons.flight, size: 14, color: Colors.black45),
                               const SizedBox(width: 4),
-                              Text(route, style: const TextStyle(fontSize: 13)),
+                              Expanded(
+                                child: Text(route,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(fontSize: 13)),
+                              ),
                               if (amount.isNotEmpty) ...[
-                                const Spacer(),
-                                Text(amount,
-                                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                                const SizedBox(width: 4),
+                                Flexible(
+                                  child: Text(amount,
+                                      overflow: TextOverflow.ellipsis,
+                                      textAlign: TextAlign.right,
+                                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                                ),
                               ],
                             ],
                           ),
@@ -196,43 +208,58 @@ class _AgentReservationsScreenState extends State<AgentReservationsScreen> {
                               children: [
                                 const Icon(Icons.person_outline, size: 14, color: Colors.black45),
                                 const SizedBox(width: 4),
-                                Text(r['user_email'],
-                                    style: const TextStyle(fontSize: 12, color: Colors.black54)),
+                                Expanded(
+                                  child: Text(r['user_email'],
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(fontSize: 12, color: Colors.black54)),
+                                ),
                               ],
                             ),
                           ],
                           // Action buttons
                           if (statusStr == 'pending') ...[
-                            const SizedBox(height: 10),
+                            const SizedBox(height: 8),
                             Row(
                               mainAxisAlignment: MainAxisAlignment.end,
                               children: [
                                 TextButton.icon(
                                   onPressed: () => _updateStatus(r, 'cancelled'),
-                                  icon: const Icon(Icons.cancel_outlined, size: 16, color: Colors.red),
-                                  label: const Text('Annuler', style: TextStyle(color: Colors.red)),
+                                  icon: const Icon(Icons.cancel_outlined, size: 14, color: Colors.red),
+                                  label: const Text('Annuler', style: TextStyle(color: Colors.red, fontSize: 12)),
+                                  style: TextButton.styleFrom(
+                                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                    minimumSize: Size.zero,
+                                  ),
                                 ),
                                 const SizedBox(width: 8),
                                 ElevatedButton.icon(
                                   onPressed: () => _updateStatus(r, 'confirmed'),
-                                  icon: const Icon(Icons.check_circle_outline, size: 16),
-                                  label: const Text('Confirmer'),
+                                  icon: const Icon(Icons.check_circle_outline, size: 14),
+                                  label: const Text('Confirmer', style: TextStyle(fontSize: 12)),
                                   style: ElevatedButton.styleFrom(
                                     backgroundColor: Colors.green,
                                     foregroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                    minimumSize: Size.zero,
                                   ),
                                 ),
                               ],
                             ),
                           ] else if (statusStr == 'confirmed') ...[
-                            const SizedBox(height: 10),
+                            const SizedBox(height: 4),
                             Align(
                               alignment: Alignment.centerRight,
                               child: TextButton.icon(
                                 onPressed: () => _updateStatus(r, 'cancelled'),
-                                icon: const Icon(Icons.cancel_outlined, size: 16, color: Colors.red),
-                                label: const Text('Annuler', style: TextStyle(color: Colors.red)),
+                                icon: const Icon(Icons.cancel_outlined, size: 14, color: Colors.red),
+                                label: const Text('Annuler', style: TextStyle(color: Colors.red, fontSize: 12)),
+                                style: TextButton.styleFrom(
+                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  minimumSize: Size.zero,
+                                ),
                               ),
                             ),
                           ],

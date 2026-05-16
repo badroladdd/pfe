@@ -328,8 +328,11 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                       ),
                       title: Row(
                         children: [
-                          Text('${u['first_name']} ${u['last_name']}',
-                              style: const TextStyle(fontWeight: FontWeight.bold)),
+                          Flexible(
+                            child: Text('${u['first_name']} ${u['last_name']}',
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontWeight: FontWeight.bold)),
+                          ),
                           if (!isActive) ...[
                             const SizedBox(width: 6),
                             Container(
@@ -344,21 +347,28 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                           ],
                         ],
                       ),
-                      subtitle: Text(u['email'] ?? ''),
-                      trailing: Row(
+                      subtitle: Text(u['email'] ?? '',
+                          overflow: TextOverflow.ellipsis),
+                      trailing: SizedBox(
+                        width: 100,
+                        child: Row(
                         mainAxisSize: MainAxisSize.min,
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                            decoration: BoxDecoration(
-                              color: _roleColor(role).withValues(alpha: 0.1),
-                              borderRadius: BorderRadius.circular(20),
+                          Flexible(
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: _roleColor(role).withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Text(role,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(color: _roleColor(role),
+                                      fontWeight: FontWeight.bold, fontSize: 11)),
                             ),
-                            child: Text(role,
-                                style: TextStyle(color: _roleColor(role),
-                                    fontWeight: FontWeight.bold, fontSize: 11)),
                           ),
-                          const SizedBox(width: 4),
                           PopupMenuButton<String>(
                             onSelected: (v) {
                               if (v == 'edit')   _editUser(u);
@@ -371,6 +381,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                           ),
                         ],
                       ),
+                      ),   // SizedBox
                     ),
                   );
                 },

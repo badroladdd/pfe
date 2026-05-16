@@ -619,10 +619,14 @@ class ApiClient {
   Map<String, dynamic> _handleResponse(http.Response response) {
     debugPrint('[API] ← ${response.statusCode} (${response.body.length} bytes)');
 
+    // 204 No Content — reponse vide valide (DELETE)
+    if (response.statusCode == 204) return {};
+
     Map<String, dynamic> body;
     try {
       body = jsonDecode(response.body) as Map<String, dynamic>;
     } catch (_) {
+      if (response.statusCode >= 200 && response.statusCode < 300) return {};
       throw ApiException(
         'Réponse invalide du serveur.',
         statusCode: response.statusCode,

@@ -14,11 +14,6 @@ class AgentNewBookingScreen extends StatefulWidget {
 class _AgentNewBookingScreenState extends State<AgentNewBookingScreen> {
   final _api = ApiClient();
 
-  // Client selection
-  List<Map<String, dynamic>> _clients = [];
-  Map<String, dynamic>? _selectedClient;
-  bool _loadingClients = true;
-
   // Search fields
   final _originCtrl      = TextEditingController(text: 'ALG');
   final _destCtrl        = TextEditingController(text: 'TUN');
@@ -33,7 +28,6 @@ class _AgentNewBookingScreenState extends State<AgentNewBookingScreen> {
   @override
   void initState() {
     super.initState();
-    _loadClients();
   }
 
   @override
@@ -43,17 +37,6 @@ class _AgentNewBookingScreenState extends State<AgentNewBookingScreen> {
     super.dispose();
   }
 
-  Future<void> _loadClients() async {
-    try {
-      final list = await _api.listAdminUsers();
-      setState(() {
-        _clients = list.where((u) => u['role'] == 'client').toList();
-        _loadingClients = false;
-      });
-    } catch (_) {
-      setState(() => _loadingClients = false);
-    }
-  }
 
   String _toTravelClass(String v) {
     switch (v) {
@@ -135,7 +118,7 @@ class _AgentNewBookingScreenState extends State<AgentNewBookingScreen> {
           builder: (_) => _AgentFlightsResultScreen(
             flights: flights,
             rawOffers: valid,
-            selectedClient: _selectedClient,
+            selectedClient: null,
             onBookingCreated: widget.onBookingCreated,
           ),
         ),
@@ -160,24 +143,6 @@ class _AgentNewBookingScreenState extends State<AgentNewBookingScreen> {
           const Text('Nouvelle réservation',
               style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
           const SizedBox(height: 16),
-
-          // ── Client selector ──────────────────────────────────────
-          _sectionTitle('Client'),
-          const SizedBox(height: 8),
-          _loadingClients
-              ? const Center(child: CircularProgressIndicator())
-              : DropdownButtonFormField<Map<String, dynamic>>(
-                  initialValue: _selectedClient,
-                  hint: const Text('Sélectionner un client (optionnel)'),
-                  decoration: _inputDecoration(),
-                  items: _clients.map((c) => DropdownMenuItem(
-                    value: c,
-                    child: Text('${c['first_name']} ${c['last_name']} — ${c['email']}'),
-                  )).toList(),
-                  onChanged: (v) => setState(() => _selectedClient = v),
-                ),
-
-          const SizedBox(height: 20),
 
           // ── Trip mode ────────────────────────────────────────────
           _sectionTitle('Type de voyage'),
@@ -238,6 +203,7 @@ class _AgentNewBookingScreenState extends State<AgentNewBookingScreen> {
               Expanded(
                 child: DropdownButtonFormField<int>(
                   initialValue: _adults,
+                  isExpanded: true,
                   decoration: _inputDecoration(label: 'Adultes', icon: Icons.person),
                   items: List.generate(9, (i) => i + 1)
                       .map((n) => DropdownMenuItem(value: n, child: Text('$n adulte${n > 1 ? 's' : ''}')))
@@ -249,6 +215,7 @@ class _AgentNewBookingScreenState extends State<AgentNewBookingScreen> {
               Expanded(
                 child: DropdownButtonFormField<String>(
                   initialValue: _cabinClass,
+                  isExpanded: true,
                   decoration: _inputDecoration(label: 'Classe', icon: Icons.airline_seat_recline_normal),
                   items: ['Economique', 'Affaires', 'Première']
                       .map((c) => DropdownMenuItem(value: c, child: Text(c)))

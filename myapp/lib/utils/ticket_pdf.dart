@@ -1,6 +1,7 @@
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'package:myapp/utils/currency.dart';
 
 Future<void> downloadTicketPdf(Map<String, dynamic> reservation) async {
   final pdf = pw.Document();
@@ -8,8 +9,8 @@ Future<void> downloadTicketPdf(Map<String, dynamic> reservation) async {
   final ref       = reservation['booking_reference']?.toString() ?? reservation['id']?.toString() ?? 'N/A';
   final origin    = reservation['origin_iata']?.toString()      ?? '---';
   final dest      = reservation['destination_iata']?.toString() ?? '---';
-  final amount    = reservation['total_amount']?.toString()      ?? '0';
-  final currency  = reservation['currency']?.toString()          ?? 'EUR';
+  final amountEur = double.tryParse(reservation['total_amount']?.toString() ?? '0') ?? 0.0;
+  final amountDzd = formatDzd(amountEur);
   final createdAt = reservation['created_at']?.toString()        ?? '';
   final userEmail = reservation['user_email']?.toString()        ?? '';
   final userName  = reservation['user_full_name']?.toString()    ?? '';
@@ -121,7 +122,7 @@ Future<void> downloadTicketPdf(Map<String, dynamic> reservation) async {
                 ),
                 pw.Column(
                   children: [
-                    pw.Text('✈', style: const pw.TextStyle(fontSize: 28, color: PdfColors.blue400)),
+                    pw.Text('---->', style: pw.TextStyle(fontSize: 20, color: PdfColors.blue400, fontWeight: pw.FontWeight.bold)),
                     pw.Text('Vol direct', style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey500)),
                   ],
                 ),
@@ -188,7 +189,7 @@ Future<void> downloadTicketPdf(Map<String, dynamic> reservation) async {
               children: [
                 pw.Text('Montant total payé',
                     style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
-                pw.Text('$amount $currency',
+                pw.Text(amountDzd,
                     style: pw.TextStyle(
                         fontSize: 18,
                         fontWeight: pw.FontWeight.bold,

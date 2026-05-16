@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:myapp/api.dart';
-import 'package:myapp/utils/currency.dart';
 
 class AdminPromoScreen extends StatefulWidget {
   const AdminPromoScreen({super.key});
@@ -251,7 +250,7 @@ class _PromoCard extends StatelessWidget {
               runSpacing: 6,
               children: [
                 _chip(
-                  type == 'percent' ? '-$value%' : '-${formatDzdFromString(value)} remise',
+                  type == 'percent' ? '-$value%' : '-${double.tryParse(value)?.toStringAsFixed(0) ?? value} DZD remise',
                   Icons.local_offer_outlined,
                   Colors.blue,
                 ),
