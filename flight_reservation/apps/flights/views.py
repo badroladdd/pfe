@@ -78,12 +78,24 @@ class FlightSearchView(APIView):
             + child_passengers
         )
 
+        raw_non_stop = request.query_params.get("non_stop", "false").strip().lower()
+        non_stop = raw_non_stop in ("1", "true", "t", "yes", "y", "on")
+
+        raw_has_baggage = request.query_params.get("has_baggage", "false").strip().lower()
+        has_baggage = raw_has_baggage in ("1", "true", "t", "yes", "y", "on")
+
+        raw_refundable = request.query_params.get("refundable", "false").strip().lower()
+        refundable = raw_refundable in ("1", "true", "t", "yes", "y", "on")
+
         result = services.search_flights(
             origin=origin,
             destination=destination,
             departure_date=departure_date,
             passengers=passengers,
             cabin_class=cabin_class,
+            non_stop=non_stop,
+            has_baggage=has_baggage,
+            is_refundable=refundable,
             return_date=return_date,
         )
 

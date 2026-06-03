@@ -26,6 +26,7 @@ INSTALLED_APPS = [
     "apps.users",
     "apps.reservations",
     "apps.flights",
+    "apps.deliveries",
 ]
 
 MIDDLEWARE = [
@@ -88,6 +89,21 @@ SIMPLE_JWT = {
 # CORS — allow Flutter app to reach the API
 CORS_ALLOW_ALL_ORIGINS = True  # Restrict to specific origins in production
 CORS_ALLOW_CREDENTIALS = True
+
+# Email Configuration
+EMAIL_BACKEND = os.environ.get(
+    "EMAIL_BACKEND",
+    "django.core.mail.backends.console.EmailBackend"
+)
+EMAIL_HOST = os.environ.get("EMAIL_HOST", "smtp.gmail.com")
+EMAIL_PORT = int(os.environ.get("EMAIL_PORT", "587"))
+EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS", "True") == "True"
+EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
+DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "noreply@deliveryservice.com")
+
+# Frontend URL for email verification links
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000")
 
 # Duffel API
 DUFFEL_API_KEY = os.environ.get("DUFFEL_API_KEY", "")

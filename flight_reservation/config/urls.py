@@ -6,7 +6,7 @@ from apps.reservations.views import (
     AdminPromoCodeDetailView, AdminPromoCodesView,
     AdminReservationsView, AdminStatsView,
     AgentReservationActionView, AgentReservationsView,
-    ValidatePromoCodeView,
+    LivreurBilletsView, LivreurMyBilletsView, ValidatePromoCodeView,
 )
 
 urlpatterns = [
@@ -27,11 +27,14 @@ urlpatterns = [
     path("api/v1/admin/reservations/",            AdminReservationsView.as_view(),       name="admin_reservations"),
     path("api/v1/admin/promo-codes/",             AdminPromoCodesView.as_view(),         name="admin_promo_codes"),
     path("api/v1/admin/promo-codes/<int:pk>/",    AdminPromoCodeDetailView.as_view(),    name="admin_promo_code_detail"),
-    path("api/v1/agent/reservations/",            AgentReservationsView.as_view(),       name="agent_reservations"),
-    path("api/v1/agent/reservations/<uuid:pk>/",  AgentReservationActionView.as_view(),  name="agent_reservation_action"),
+    path("api/v1/agent/reservations/",                           AgentReservationsView.as_view(),      name="agent_reservations"),
+    path("api/v1/agent/reservations/<uuid:pk>/",                AgentReservationActionView.as_view(), name="agent_reservation_action"),
+    path("api/v1/agent/livreurs/<uuid:livreur_id>/billets/",    LivreurBilletsView.as_view(),    name="livreur_billets"),
+    path("api/v1/livreurs/my-billets/",                        LivreurMyBilletsView.as_view(),  name="livreur_my_billets"),
     path("api/v1/promo-codes/validate/",          ValidatePromoCodeView.as_view(),       name="validate_promo_code"),
 
     # Feature routes
     path("api/v1/", include("apps.flights.urls")),
     path("api/v1/", include("apps.reservations.urls")),
+    path("api/v1/", include("apps.deliveries.urls")),
 ]

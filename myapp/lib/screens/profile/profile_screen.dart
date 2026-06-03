@@ -33,12 +33,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
       final results = await Future.wait([_api.getProfile(), _api.listReservations()]);
       final profile = results[0] as Map<String, dynamic>;
       final reservations = results[1] as List<Map<String, dynamic>>;
-      if (mounted) setState(() {
-        _profile = profile;
-        _loggedIn = true;
-        _bookingsCount = reservations.length;
-        _loading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _profile = profile;
+          _loggedIn = true;
+          _bookingsCount = reservations.length;
+          _loading = false;
+        });
+      }
     } catch (_) {
       if (mounted) setState(() { _loggedIn = false; _loading = false; });
     }

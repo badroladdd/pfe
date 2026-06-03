@@ -66,7 +66,11 @@ def create_reservation(
     )
 
     duffel_passengers = _build_duffel_passengers(passengers_data)
-    duffel_payment    = _build_duffel_payment(payment_data)
+    duffel_payment    = _build_duffel_payment(
+        payment_data,
+        duffel_offer_amount=offer.get("total_amount")
+    )
+    reservation_amount = Decimal(str(payment_data["amount"]))
 
     # ── 3a. Paiement carte (CIB) — confirmation immédiate ────────────
     if payment_method == "cib":
@@ -81,7 +85,7 @@ def create_reservation(
                 user=user,
                 offer_id=offer_id,
                 status=Reservation.Status.CONFIRMED,
-                total_amount=Decimal(str(duffel_order.get("total_amount", "0"))),
+                total_amount=reservation_amount,
                 currency=duffel_order.get("total_currency", "EUR"),
                 external_order_id=duffel_order["id"],
                 booking_reference=duffel_order.get("booking_reference", ""),
@@ -96,18 +100,22 @@ def create_reservation(
                 promo.used_count += 1
                 promo.save(update_fields=["used_count"])
             logger.info(
-                "Reservation confirmed instantly (CIB): id=%s order=%s user=%s",
-                reservation.id, duffel_order["id"], user.email,
+                "Reservation confirmed instantly (CIB): id=%s order=%s user=%s promo=%s",
+                reservation.id, duffel_order["id"], user.email, promo.code if promo else None,
             )
             return reservation
 
     # ── 3b. Paiement ultérieurement (cash) — attente agent ───────────
     with transaction.atomic():
+        # L'UI applique déjà le code promo et ajuste le montant du paiement
+        # Le montant sauvegardé est le montant réel à payer (déjà réduit si code appliqué)
+        total_amount = reservation_amount
+        
         reservation = Reservation.objects.create(
             user=user,
             offer_id=offer_id,
             status=Reservation.Status.PENDING,
-            total_amount=Decimal(str(offer.get("total_amount", "0"))),
+            total_amount=total_amount,
             currency=offer.get("total_currency", "EUR"),
             raw_duffel_order=offer,
             pending_booking_data={
@@ -123,8 +131,8 @@ def create_reservation(
             promo.used_count += 1
             promo.save(update_fields=["used_count"])
         logger.info(
-            "Reservation created (pending/cash): id=%s user=%s offer=%s",
-            reservation.id, user.email, offer_id,
+            "Reservation created (pending/cash): id=%s user=%s offer=%s promo=%s",
+            reservation.id, user.email, offer_id, promo.code if promo else None,
         )
         return reservation
 
@@ -304,11 +312,21 @@ def _build_duffel_passengers(passengers_data: list[dict]) -> list[dict]:
     return result
 
 
-def _build_duffel_payment(payment_data: dict) -> dict:
-    """Map validated payment data → Duffel payment schema."""
+def _build_duffel_payment(payment_data: dict, duffel_offer_amount: str | None = None) -> dict:
+    """Map validated payment data → Duffel payment schema.
+    
+    Args:
+        payment_data: Payment data from request (may have been reduced by promo code)
+        duffel_offer_amount: Actual offer amount from Duffel API (use this for payment to Duffel)
+    """
+    # Always use the Duffel offer amount for the payment to Duffel
+    # (not the potentially discounted amount from the UI)
+    amount = duffel_offer_amount or payment_data["amount"]
+    amount = Decimal(str(amount)).quantize(Decimal("0.01"))
+
     return {
         "type": payment_data["type"],
-        "amount": str(payment_data["amount"]),
+        "amount": str(amount),
         "currency": payment_data["currency"],
     }
 

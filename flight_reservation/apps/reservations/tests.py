@@ -94,6 +94,7 @@ class CreateReservationTest(TestCase):
             offer_id=self.offer_id,
             passengers_data=PASSENGER_DATA,
             payment_data=PAYMENT_DATA,
+            payment_method="cib",  # CIB = immediate Duffel confirmation
         )
 
         self.assertEqual(reservation.external_order_id, MOCK_ORDER["id"])

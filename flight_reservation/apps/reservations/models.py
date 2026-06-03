@@ -1,4 +1,5 @@
 import uuid
+from decimal import Decimal
 
 from django.conf import settings
 from django.db import models
@@ -7,10 +8,11 @@ from django.utils import timezone
 
 class Reservation(models.Model):
     class Status(models.TextChoices):
-        PENDING = "pending", "Pending"
-        CONFIRMED = "confirmed", "Confirmed"
-        CANCELLED = "cancelled", "Cancelled"
-        FAILED = "failed", "Failed"
+        PENDING   = "pending",   "En attente"
+        CONFIRMED = "confirmed", "Confirmée"
+        EMIS      = "emis",      "Émis"
+        CANCELLED = "cancelled", "Annulée"
+        FAILED    = "failed",    "Échouée"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey(
@@ -35,6 +37,14 @@ class Reservation(models.Model):
     raw_duffel_order = models.JSONField(null=True, blank=True)
     # Duffel-ready booking data stored when client books — used by agent to confirm
     pending_booking_data = models.JSONField(null=True, blank=True)
+    # Livreur assigned to physically deliver this ticket to the client
+    livreur = models.ForeignKey(
+        "deliveries.Livreur",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="billets",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -181,14 +191,25 @@ class PromoCode(models.Model):
             and self.expires_at > timezone.now()
         )
 
-    def apply(self, amount):
-        """Return discounted amount (Decimal)."""
+    FIXED_DISCOUNT_CURRENCY = "DZD"
+    DZD_TO_EUR_RATE = Decimal("155")
+
+    def apply(self, amount, currency="EUR"):
+        """Return discounted amount (Decimal).
+
+        Fixed discounts are stored as DZD in the admin UI, but amounts are
+        passed to the API in EUR. Convert the fixed discount to EUR before
+        applying when the target currency is EUR.
+        """
         from decimal import Decimal
         if self.discount_type == self.DiscountType.PERCENT:
             discount = amount * (Decimal(str(self.discount_value)) / Decimal("100"))
         else:
             discount = Decimal(str(self.discount_value))
-        return max(amount - discount, Decimal("0"))
+            if currency == "EUR":
+                discount = discount / self.DZD_TO_EUR_RATE
+        result = max(amount - discount, Decimal("0"))
+        return result.quantize(Decimal("0.01"))
 
     def __str__(self):
-        return f"{self.code} ({self.discount_value}{'%' if self.discount_type == 'percent' else '€'})"
+        return f"{self.code} ({self.discount_value}{'%' if self.discount_type == 'percent' else 'DZD'})"

@@ -66,6 +66,39 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  bool _offerHasBaggage(Map<String, dynamic> offer) {
+    final slices = (offer['slices'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+    for (final slice in slices) {
+      final segments = (slice['segments'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+      for (final seg in segments) {
+        final paxList = (seg['passengers'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+        for (final pax in paxList) {
+          final baggages = (pax['baggages'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+          if (baggages.isNotEmpty) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  }
+
+  bool _offerIsRefundable(Map<String, dynamic> offer) {
+    final conditions = (offer['conditions'] as Map<String, dynamic>?) ?? {};
+    if (conditions['refundable'] == true) return true;
+
+    final slices = (offer['slices'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+    for (final slice in slices) {
+      final segments = (slice['segments'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+      for (final seg in segments) {
+        final segConditions = (seg['conditions'] as Map<String, dynamic>?) ?? {};
+        if (segConditions['refundable'] == true) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
 
   Future<void> _searchFlights() async {
     final origin      = routes[0]['from']?.trim().toUpperCase() ?? '';
@@ -130,6 +163,8 @@ class _HomeScreenState extends State<HomeScreen> {
         childrenAges: _childrenAges,
         travelClass: _toTravelClass(flightClass),
         nonStop: isDirect,
+        hasBaggage: hasBaggage,
+        refundable: isRefundable,
         returnDate: formattedReturnDate,
       );
 
@@ -144,8 +179,8 @@ class _HomeScreenState extends State<HomeScreen> {
           passengers: _adults.toString(),
           flightClass: flightClass,
           isDirect: (summary['stops'] ?? 1) == 0,
-          hasBaggage: hasBaggage,
-          isRefundable: isRefundable,
+          hasBaggage: _offerHasBaggage(offer),
+          isRefundable: _offerIsRefundable(offer),
           price: double.tryParse(summary['total_price']?.toString() ?? '0') ?? 0,
           departureAt: summary['departure_at']?.toString() ?? '',
           arrivalAt: summary['arrival_at']?.toString() ?? '',

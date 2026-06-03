@@ -2,7 +2,7 @@ from datetime import date
 
 from rest_framework import serializers
 
-from apps.reservations.models import Passenger, PromoCode, Reservation
+from apps.reservations.models import Passenger, Reservation, PromoCode
 
 
 # ─────────────────────────────────────────────
@@ -139,49 +139,73 @@ class PassengerOutputSerializer(serializers.ModelSerializer):
 
 
 class ReservationOutputSerializer(serializers.ModelSerializer):
-    passengers     = PassengerOutputSerializer(many=True, read_only=True)
-    user_email     = serializers.EmailField(source="user.email", read_only=True)
-    user_full_name = serializers.CharField(source="user.full_name", read_only=True)
+    passengers       = PassengerOutputSerializer(many=True, read_only=True)
+    user_email       = serializers.EmailField(source="user.email", read_only=True)
+    user_full_name   = serializers.CharField(source="user.full_name", read_only=True)
+    user_phone       = serializers.CharField(source="user.phone", read_only=True)
     origin_iata      = serializers.SerializerMethodField()
     destination_iata = serializers.SerializerMethodField()
+    departure_at     = serializers.SerializerMethodField()
+    arrival_at       = serializers.SerializerMethodField()
+    carrier_name     = serializers.SerializerMethodField()
+    livreur_id       = serializers.SerializerMethodField()
+    livreur_name     = serializers.SerializerMethodField()
 
     def _slices(self, obj):
-        order = obj.raw_duffel_order or {}
-        return order.get("slices") or []
+        return (obj.raw_duffel_order or {}).get("slices") or []
 
     def get_origin_iata(self, obj):
         slices = self._slices(obj)
         if not slices:
             return ""
-        first_seg = (slices[0].get("segments") or [{}])[0]
-        return (first_seg.get("origin") or {}).get("iata_code", "")
+        seg = (slices[0].get("segments") or [{}])[0]
+        return (seg.get("origin") or {}).get("iata_code", "")
 
     def get_destination_iata(self, obj):
         slices = self._slices(obj)
         if not slices:
             return ""
-        # For round-trips use outbound slice destination
-        outbound = slices[0]
-        last_seg = (outbound.get("segments") or [{}])[-1]
+        last_seg = (slices[0].get("segments") or [{}])[-1]
         return (last_seg.get("destination") or {}).get("iata_code", "")
+
+    def get_departure_at(self, obj):
+        slices = self._slices(obj)
+        if not slices:
+            return ""
+        seg = (slices[0].get("segments") or [{}])[0]
+        return seg.get("departing_at", "")
+
+    def get_arrival_at(self, obj):
+        slices = self._slices(obj)
+        if not slices:
+            return ""
+        last_seg = (slices[0].get("segments") or [{}])[-1]
+        return last_seg.get("arriving_at", "")
+
+    def get_carrier_name(self, obj):
+        slices = self._slices(obj)
+        if not slices:
+            return ""
+        seg = (slices[0].get("segments") or [{}])[0]
+        return (seg.get("marketing_carrier") or {}).get("name", "")
+
+    def get_livreur_id(self, obj):
+        return str(obj.livreur_id) if obj.livreur_id else None
+
+    def get_livreur_name(self, obj):
+        if obj.livreur is None:
+            return None
+        return obj.livreur.user.full_name
 
     class Meta:
         model = Reservation
         fields = [
-            "id",
-            "user_email",
-            "user_full_name",
-            "offer_id",
-            "external_order_id",
-            "booking_reference",
-            "status",
-            "total_amount",
-            "currency",
-            "origin_iata",
-            "destination_iata",
-            "passengers",
-            "created_at",
-            "updated_at",
+            "id", "user_email", "user_full_name", "user_phone",
+            "offer_id", "external_order_id", "booking_reference",
+            "status", "total_amount", "currency",
+            "origin_iata", "destination_iata", "departure_at", "arrival_at",
+            "carrier_name", "livreur_id", "livreur_name",
+            "passengers", "created_at", "updated_at",
         ]
 
 

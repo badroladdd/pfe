@@ -1,4 +1,5 @@
 import logging
+from decimal import Decimal
 
 from django.db.models import Count, Q, Sum
 from rest_framework import status
@@ -60,13 +61,14 @@ class ReservationListCreateView(APIView):
         # Offer passengers carry the Duffel passenger IDs that must be echoed
         # back in the order creation request.
         offer_passengers = flight_offer.get("passengers", [])
+        amount = Decimal(str(flight_offer.get("total_amount", "0"))).quantize(Decimal("0.01"))
 
         payload = {
             "offer_id": offer_id,
             "passengers": _convert_flutter_passengers(flutter_passengers, offer_passengers),
             "payment": {
                 "type": "balance",
-                "amount": str(flight_offer.get("total_amount", "0")),
+                "amount": str(amount),
                 "currency": flight_offer.get("total_currency", "EUR"),
             },
         }
@@ -240,9 +242,9 @@ class AgentReservationActionView(APIView):
             return Response({"detail": "Agent access required."}, status=status.HTTP_403_FORBIDDEN)
 
         new_status = request.data.get("status")
-        if new_status not in ("confirmed", "cancelled"):
+        if new_status not in ("confirmed", "emis", "cancelled"):
             return Response(
-                {"detail": "status must be 'confirmed' or 'cancelled'."},
+                {"detail": "status must be 'confirmed', 'emis' or 'cancelled'."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -255,7 +257,33 @@ class AgentReservationActionView(APIView):
             return Response({"detail": "Reservation is already cancelled."}, status=status.HTTP_400_BAD_REQUEST)
 
         if new_status == "confirmed":
+            if reservation.status != Reservation.Status.PENDING:
+                return Response({"detail": "Only pending reservations can be confirmed."}, status=status.HTTP_400_BAD_REQUEST)
             reservation = services.confirm_reservation(reservation, request.user)
+
+        elif new_status == "emis":
+            if reservation.status != Reservation.Status.CONFIRMED:
+                return Response({"detail": "Only confirmed reservations can be marked as emis."}, status=status.HTTP_400_BAD_REQUEST)
+            reservation.status = Reservation.Status.EMIS
+            reservation.save(update_fields=["status", "updated_at"])
+
+        elif new_status == "assign_livreur":
+            if reservation.status in (Reservation.Status.PENDING, Reservation.Status.CANCELLED):
+                return Response(
+                    {"detail": "Impossible d'affecter un livreur à une réservation en attente ou annulée."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            from apps.deliveries.models import Livreur
+            livreur_id = request.data.get("livreur_id")
+            if not livreur_id:
+                return Response({"detail": "livreur_id is required."}, status=status.HTTP_400_BAD_REQUEST)
+            try:
+                livreur = Livreur.objects.get(id=livreur_id)
+            except Livreur.DoesNotExist:
+                return Response({"detail": "Livreur not found."}, status=status.HTTP_404_NOT_FOUND)
+            reservation.livreur = livreur
+            reservation.save(update_fields=["livreur", "updated_at"])
+
         else:
             # Cancel: trigger Duffel if already booked, otherwise just mark cancelled
             if reservation.external_order_id:
@@ -265,7 +293,43 @@ class AgentReservationActionView(APIView):
                 reservation.pending_booking_data = None
                 reservation.save(update_fields=["status", "pending_booking_data", "updated_at"])
 
+        reservation.refresh_from_db()
         return Response({"data": ReservationOutputSerializer(reservation).data})
+
+
+class LivreurBilletsView(APIView):
+    """GET /api/v1/agent/livreurs/{livreur_id}/billets/ — billets assigned to a livreur (admin/agent view)."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, livreur_id):
+        if request.user.role not in ("agent", "admin"):
+            return Response({"detail": "Agent access required."}, status=status.HTTP_403_FORBIDDEN)
+        qs = Reservation.objects.select_related("user", "livreur__user").filter(
+            livreur_id=livreur_id
+        ).order_by("-created_at")
+        status_filter = request.query_params.get("status")
+        if status_filter:
+            qs = qs.filter(status=status_filter)
+        return Response({"results": ReservationOutputSerializer(qs, many=True).data})
+
+
+class LivreurMyBilletsView(APIView):
+    """GET /api/v1/livreurs/my-billets/ — billets assigned to the authenticated livreur."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if request.user.role != "livreur":
+            return Response({"detail": "Accès réservé aux livreurs."}, status=status.HTTP_403_FORBIDDEN)
+        livreur = request.user.livreur_profile
+        qs = Reservation.objects.select_related("user").filter(
+            livreur=livreur
+        ).order_by("-created_at")
+        status_filter = request.query_params.get("status")
+        if status_filter:
+            qs = qs.filter(status=status_filter)
+        return Response({"results": ReservationOutputSerializer(qs, many=True).data})
 
 
 class AdminStatsView(APIView):
@@ -386,13 +450,15 @@ class ValidatePromoCodeView(APIView):
             return Response({"detail": "Code promo expiré ou épuisé."}, status=status.HTTP_400_BAD_REQUEST)
 
         discounted = promo.apply(amount)
+        discounted = discounted.quantize(Decimal("0.01"))
+        saved = (amount - discounted).quantize(Decimal("0.01"))
         return Response({
             "code":           promo.code,
             "discount_type":  promo.discount_type,
             "discount_value": str(promo.discount_value),
-            "original_amount": str(amount),
+            "original_amount": str(amount.quantize(Decimal("0.01"))),
             "discounted_amount": str(discounted),
-            "saved": str(amount - discounted),
+            "saved": str(saved),
         })
 
 

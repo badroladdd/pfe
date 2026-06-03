@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:myapp/api.dart';
 import 'package:myapp/navigation/admin_navigation.dart';
 import 'package:myapp/navigation/agent_navigation.dart';
+import 'package:myapp/navigation/livreur_navigation.dart';
 import 'package:myapp/navigation/main_navigation.dart';
 import 'package:myapp/screens/auth/login_screen.dart';
 
@@ -38,7 +39,7 @@ class AuthWrapper extends StatefulWidget {
 class _AuthWrapperState extends State<AuthWrapper> {
   final ApiClient _api = ApiClient();
   bool _checking = true;
-  String? _role;  // null = non connecté
+  String? _role;
 
   @override
   void initState() {
@@ -64,10 +65,12 @@ class _AuthWrapperState extends State<AuthWrapper> {
     if (_checking) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
-    if (_role == 'admin') return const AdminNavigation();
-    if (_role == 'agent') return const AgentNavigation();
-    if (_role == 'client') return const MainNavigation();
-    // Non connecté → écran de connexion
-    return const LoginScreen();
+    return switch (_role) {
+      'admin'   => const AdminNavigation(),
+      'agent'   => const AgentNavigation(),
+      'livreur' => const LivreurNavigation(),
+      'client'  => const MainNavigation(),
+      _         => const LoginScreen(),
+    };
   }
 }

@@ -1,21 +1,4 @@
-/// api.dart — Django Flight Reservation Backend Client
-///
-/// Covers every endpoint your Django backend exposes:
-///   POST /api/v1/auth/login/            → login
-///   POST /api/v1/auth/register/         → register
-///   POST /api/v1/auth/refresh/          → refresh token
-///   GET  /api/v1/flights/search/        → search flights
-///   POST /api/v1/flights/confirm-price/ → confirm price
-///   POST /api/v1/reservations/          → create reservation
-///   GET  /api/v1/reservations/          → list reservations
-///   GET  /api/v1/reservations/{id}/     → get reservation detail
-///   DELETE /api/v1/reservations/{id}/   → cancel reservation
-///
-/// Usage:
-///   final api = ApiClient();
-///   await api.login(email: '...', password: '...');
-///   final offers = await api.searchFlights(...);
-
+// api.dart — Django Flight Reservation Backend Client
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -30,7 +13,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// Pour émulateur Android : utiliser 10.0.2.2
 const String _kBaseUrl = String.fromEnvironment(
   'API_BASE_URL',
-  defaultValue: 'http://192.168.100.7:8000/api/v1',
+  defaultValue: 'http://192.168.100.18:8000/api/v1',
 );
 
 const String _kAccessTokenKey  = 'access_token';
@@ -52,13 +35,13 @@ class ApiException implements Exception {
 }
 
 class UnauthorizedException extends ApiException {
-  const UnauthorizedException([String message = 'Session expirée. Veuillez vous reconnecter.'])
-      : super(message, statusCode: 401, code: 'UNAUTHORIZED');
+  const UnauthorizedException([super.message = 'Session expirée. Veuillez vous reconnecter.'])
+      : super.new(statusCode: 401, code: 'UNAUTHORIZED');
 }
 
 class NetworkException extends ApiException {
-  const NetworkException([String message = 'Impossible de joindre le serveur. Vérifiez votre connexion.'])
-      : super(message, statusCode: null, code: 'NETWORK_ERROR');
+  const NetworkException([super.message = 'Impossible de joindre le serveur. Vérifiez votre connexion.'])
+      : super.new(statusCode: null, code: 'NETWORK_ERROR');
 }
 
 /// Raised when Duffel reports a price change between search and booking.
@@ -80,8 +63,8 @@ class PriceChangedException extends ApiException {
 }
 
 class DuplicateBookingException extends ApiException {
-  const DuplicateBookingException([String message = 'Vous avez déjà une réservation confirmée pour ce vol.'])
-      : super(message, statusCode: 409, code: 'DUPLICATE_BOOKING');
+  const DuplicateBookingException([super.message = 'Vous avez déjà une réservation confirmée pour ce vol.'])
+      : super.new(statusCode: 409, code: 'DUPLICATE_BOOKING');
 }
 
 // ─── Token storage (SharedPreferences) ────────────────────────────────────────
@@ -235,6 +218,8 @@ class ApiClient {
     List<int> childrenAges = const [],
     String travelClass = 'ECONOMY',
     bool nonStop      = false,
+    bool hasBaggage   = false,
+    bool refundable   = false,
     String currency   = 'EUR',
     int maxResults    = 20,
     String? returnDate,
@@ -248,6 +233,8 @@ class ApiClient {
       'infants':        infants.toString(),
       'travel_class':   travelClass,
       'non_stop':       nonStop.toString(),
+      'has_baggage':    hasBaggage.toString(),
+      'refundable':     refundable.toString(),
       'currency_code':  currency.toUpperCase(),
       'max_results':    maxResults.toString(),
     };
@@ -403,10 +390,37 @@ class ApiClient {
     return (data['results'] as List).cast<Map<String, dynamic>>();
   }
 
-  /// Confirm or cancel a reservation (agent action).
+  /// Confirm, emit, or cancel a reservation (agent action).
   Future<Map<String, dynamic>> updateReservationStatus(String reservationId, String status) async {
     final data = await _patch('/agent/reservations/$reservationId/', body: {'status': status});
     return data['data'] as Map<String, dynamic>;
+  }
+
+  /// Assign a livreur to deliver a reservation's ticket.
+  Future<Map<String, dynamic>> assignLivreurToReservation(
+      String reservationId, String livreurId) async {
+    final data = await _patch(
+      '/agent/reservations/$reservationId/',
+      body: {'status': 'assign_livreur', 'livreur_id': livreurId},
+    );
+    return data['data'] as Map<String, dynamic>;
+  }
+
+  /// List all reservations assigned to a specific livreur (admin/agent view).
+  Future<List<Map<String, dynamic>>> listLivreurBillets(String livreurId,
+      {String? status}) async {
+    final query = <String, String>{};
+    if (status != null) query['status'] = status;
+    final data = await _get('/agent/livreurs/$livreurId/billets/', queryParams: query);
+    return (data['results'] as List).cast<Map<String, dynamic>>();
+  }
+
+  /// List billets assigned to the authenticated livreur (livreur self-view).
+  Future<List<Map<String, dynamic>>> listMyBillets({String? status}) async {
+    final query = <String, String>{};
+    if (status != null) query['status'] = status;
+    final data = await _get('/livreurs/my-billets/', queryParams: query);
+    return (data['results'] as List).cast<Map<String, dynamic>>();
   }
 
   /// Create a reservation on behalf of a client (agent flow).
@@ -486,6 +500,170 @@ class ApiClient {
   Future<Map<String, dynamic>> cancelReservation(String reservationId) async {
     final data = await _delete('/reservations/$reservationId/');
     return data['data'] as Map<String, dynamic>;
+  }
+
+  // ══════════════════════════════════════════════════════════════════
+  // DELIVERIES (LIVREUR & PACKAGES)
+  // ══════════════════════════════════════════════════════════════════
+
+  /// List packages assigned to the authenticated livreur.
+  /// Optional filter by status: 'assigned', 'in_transit', 'delivered', etc.
+  Future<Map<String, dynamic>> listAssignedPackages({String? status}) async {
+    final query = <String, String>{};
+    if (status != null) query['status'] = status;
+    return await _get('/colis/', queryParams: query);
+  }
+
+  /// Get a specific package details by ID.
+  Future<Map<String, dynamic>> getPackageDetail(String colisId) async {
+    return await _get('/colis/$colisId/');
+  }
+
+  /// Update package status (e.g., mark as 'in_transit' or 'delivered').
+  /// Can also add a delivery note.
+  Future<Map<String, dynamic>> updatePackageStatus(
+    String colisId, {
+    required String status,
+    String? deliveryNote,
+  }) async {
+    final body = <String, dynamic>{'status': status};
+    if (deliveryNote != null) body['delivery_note'] = deliveryNote;
+    return await _patch('/colis/$colisId/', body: body);
+  }
+
+  /// Get the authenticated livreur's profile.
+  Future<Map<String, dynamic>> getLivreurProfile() async {
+    return await _get('/livreurs/');
+  }
+
+  /// Update the livreur's current location (latitude/longitude).
+  Future<Map<String, dynamic>> updateLivreurLocation({
+    required double latitude,
+    required double longitude,
+  }) async {
+    return await _patch(
+      '/livreurs/update-location/',
+      body: {'latitude': latitude, 'longitude': longitude},
+    );
+  }
+
+  /// List all sectors (geographic areas for deliveries).
+  Future<Map<String, dynamic>> listSectors() async {
+    return await _get('/sectors/', requiresAuth: false);
+  }
+
+  // ══════════════════════════════════════════════════════════════════
+  // ADMIN — LIVREURS
+  // ══════════════════════════════════════════════════════════════════
+
+  /// List all livreurs (admin only). Optional filters: sector, status.
+  Future<List<Map<String, dynamic>>> adminListLivreurs({
+    String? sector,
+    String? status,
+  }) async {
+    final query = <String, String>{};
+    if (sector != null) query['sector'] = sector;
+    if (status != null) query['status'] = status;
+    final data = await _get('/livreurs/', queryParams: query);
+    return (data['results'] as List).cast<Map<String, dynamic>>();
+  }
+
+  /// Create a livreur account (admin only).
+  Future<Map<String, dynamic>> adminCreateLivreur({
+    required String email,
+    required String password,
+    required String firstName,
+    required String lastName,
+    required String phone,
+    required String sectorId,
+    String vehicleType = 'motorcycle',
+    String vehiclePlate = '',
+    int maxPackagesPerDay = 50,
+  }) async {
+    return await _post('/livreurs/create/', body: {
+      'email': email,
+      'password': password,
+      'first_name': firstName,
+      'last_name': lastName,
+      'phone': phone,
+      'sector_id': sectorId,
+      'vehicle_type': vehicleType,
+      'vehicle_plate': vehiclePlate,
+      'max_packages_per_day': maxPackagesPerDay,
+    });
+  }
+
+  // ══════════════════════════════════════════════════════════════════
+  // ADMIN — COLIS (PACKAGES)
+  // ══════════════════════════════════════════════════════════════════
+
+  /// List all packages (admin). Optional filters: status, sector.
+  Future<List<Map<String, dynamic>>> adminListColis({
+    String? status,
+    String? sector,
+  }) async {
+    final query = <String, String>{};
+    if (status != null) query['status'] = status;
+    if (sector != null) query['sector'] = sector;
+    final data = await _get('/colis/', queryParams: query);
+    return (data['results'] as List).cast<Map<String, dynamic>>();
+  }
+
+  /// Create a new package (admin only). Auto-assigns to a livreur in the sector.
+  Future<Map<String, dynamic>> adminCreateColis(Map<String, dynamic> body) async {
+    return await _post('/colis/create/', body: body);
+  }
+
+  /// Manually assign (or override) a package to a specific livreur (admin only).
+  Future<Map<String, dynamic>> adminAssignColis({
+    required String colisId,
+    required String livreurId,
+  }) async {
+    return await _post('/colis/assign/', body: {
+      'colis_id': colisId,
+      'livreur_id': livreurId,
+    });
+  }
+
+  /// Register a new user with email verification.
+  /// After registration, user must verify email before account is active.
+  Future<Map<String, dynamic>> registerWithEmailVerification({
+    required String email,
+    required String password,
+    required String firstName,
+    required String lastName,
+    String phone = '',
+  }) async {
+    return await _post(
+      '/auth/register-with-verification/',
+      body: {
+        'email': email,
+        'password': password,
+        'password2': password,
+        'first_name': firstName,
+        'last_name': lastName,
+        'phone': phone,
+      },
+      requiresAuth: false,
+    );
+  }
+
+  /// Verify email with a token sent to the user's inbox.
+  Future<Map<String, dynamic>> verifyEmail(String token) async {
+    return await _post(
+      '/auth/verify-email/',
+      body: {'token': token},
+      requiresAuth: false,
+    );
+  }
+
+  /// Resend the verification code to the given email.
+  Future<void> resendVerificationCode(String email) async {
+    await _post(
+      '/auth/resend-verification/',
+      body: {'email': email},
+      requiresAuth: false,
+    );
   }
 
   // ══════════════════════════════════════════════════════════════════

@@ -23,10 +23,15 @@ class RegisterSerializer(serializers.ModelSerializer):
 
 
 class UserSerializer(serializers.ModelSerializer):
+    has_livreur_profile = serializers.SerializerMethodField()
+
     class Meta:
         model = User
         fields = [
             "id", "email", "first_name", "last_name",
-            "phone", "role", "created_at",
+            "phone", "role", "has_livreur_profile", "created_at",
         ]
         read_only_fields = ["id", "role", "created_at"]
+
+    def get_has_livreur_profile(self, obj):
+        return hasattr(obj, "livreur_profile")
