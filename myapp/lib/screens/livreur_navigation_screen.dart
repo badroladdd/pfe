@@ -1,9 +1,5 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:location/location.dart';
 import 'package:myapp/api.dart';
 
 class LivreurNavigationScreen extends StatefulWidget {
@@ -16,183 +12,49 @@ class LivreurNavigationScreen extends StatefulWidget {
 
 class _LivreurNavigationScreenState extends State<LivreurNavigationScreen> {
   final ApiClient _api = ApiClient();
-  final Location _location = Location();
 
-  GoogleMapController? _mapController;
-  LatLng? _currentLocation;
-  Set<Marker> _markers = {};
-  final Set<Polyline> _polylines = {};
   List<Map<String, dynamic>> _packages = [];
   bool _loading = true;
   String? _error;
-  int _selectedPackageIndex = -1;
-
-  StreamSubscription<LocationData>? _locationSub;
-
-  static const double _defaultZoom = 15.0;
 
   @override
   void initState() {
     super.initState();
-    _initializeScreen();
-  }
-
-  @override
-  void dispose() {
-    _locationSub?.cancel();
-    _mapController?.dispose();
-    super.dispose();
-  }
-
-  Future<void> _initializeScreen() async {
-    try {
-      await _requestLocationPermission();
-      await _getCurrentLocation();
-      await _fetchAssignedPackages();
-      await _updateLocationOnServer();
-      if (mounted) setState(() => _loading = false);
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _error = e.toString();
-          _loading = false;
-        });
-      }
-    }
-  }
-
-  Future<void> _requestLocationPermission() async {
-    final hasPermission = await _location.hasPermission();
-    if (hasPermission == PermissionStatus.denied) {
-      await _location.requestPermission();
-    }
-  }
-
-  Future<void> _getCurrentLocation() async {
-    try {
-      final locationData = await _location.getLocation();
-      if (mounted) {
-        setState(() {
-          _currentLocation = LatLng(
-            locationData.latitude ?? 0.0,
-            locationData.longitude ?? 0.0,
-          );
-        });
-      }
-
-      _locationSub = _location.onLocationChanged.listen((LocationData loc) {
-        if (!mounted) return;
-        setState(() {
-          _currentLocation = LatLng(
-            loc.latitude ?? 0.0,
-            loc.longitude ?? 0.0,
-          );
-          _updateLocationMarker();
-        });
-        _updateLocationOnServer();
-      });
-    } catch (e) {
-      _showErrorSnackBar("Failed to get location: $e");
-    }
+    _fetchAssignedPackages();
   }
 
   Future<void> _fetchAssignedPackages() async {
+    if (!mounted) return;
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
       final data = await _api.listAssignedPackages();
       final List<dynamic> list = data["results"] ?? [];
       if (!mounted) return;
       setState(() {
         _packages = list.cast<Map<String, dynamic>>();
+        _loading = false;
       });
-      _updateMarkersAndPolylines();
     } catch (e) {
-      _showErrorSnackBar("Failed to fetch packages: $e");
+      if (!mounted) return;
+      setState(() {
+        _error = e.toString();
+        _loading = false;
+      });
     }
-  }
-
-  Future<void> _updateLocationOnServer() async {
-    if (_currentLocation == null) return;
-    try {
-      await _api.updateLivreurLocation(
-        latitude: _currentLocation!.latitude,
-        longitude: _currentLocation!.longitude,
-      );
-    } catch (e) {
-      debugPrint("Failed to update location on server: $e");
-    }
-  }
-
-  void _updateMarkersAndPolylines() {
-    if (_currentLocation == null) return;
-
-    final newMarkers = <Marker>{};
-
-    newMarkers.add(
-      Marker(
-        markerId: const MarkerId("current_location"),
-        position: _currentLocation!,
-        infoWindow: const InfoWindow(title: "My Location"),
-        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
-      ),
-    );
-
-    for (int i = 0; i < _packages.length; i++) {
-      final package = _packages[i];
-      final lat = double.tryParse(package["latitude"].toString()) ?? 0.0;
-      final lng = double.tryParse(package["longitude"].toString()) ?? 0.0;
-      final isSelected = i == _selectedPackageIndex;
-
-      newMarkers.add(
-        Marker(
-          markerId: MarkerId("package_$i"),
-          position: LatLng(lat, lng),
-          infoWindow: InfoWindow(
-            title: package["recipient_name"] ?? "Package",
-            snippet: package["tracking_number"] ?? "",
-          ),
-          icon: BitmapDescriptor.defaultMarkerWithHue(
-            isSelected
-                ? BitmapDescriptor.hueViolet
-                : package["status"] == "delivered"
-                    ? BitmapDescriptor.hueGreen
-                    : BitmapDescriptor.hueOrange,
-          ),
-          onTap: () => _selectPackage(i),
-        ),
-      );
-    }
-
-    setState(() => _markers = newMarkers);
-  }
-
-  void _updateLocationMarker() {
-    // Called inside setState — safe to mutate directly here.
-    _markers = {
-      ..._markers.where((m) => m.markerId.value != "current_location"),
-      Marker(
-        markerId: const MarkerId("current_location"),
-        position: _currentLocation!,
-        infoWindow: const InfoWindow(title: "My Location"),
-        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
-      ),
-    };
-  }
-
-  void _selectPackage(int index) {
-    setState(() => _selectedPackageIndex = index);
-    _updateMarkersAndPolylines();
-    _showPackageDetailsBottomSheet(_packages[index]);
   }
 
   Future<void> _launchGPS(Map<String, dynamic> package) async {
     try {
-      final latitude = double.tryParse(package["latitude"].toString()) ?? 0.0;
-      final longitude = double.tryParse(package["longitude"].toString()) ?? 0.0;
+      final lat = double.tryParse(package["latitude"].toString()) ?? 0.0;
+      final lng = double.tryParse(package["longitude"].toString()) ?? 0.0;
 
       final googleMapsUrl =
-          "https://www.google.com/maps/dir/?api=1&destination=$latitude,$longitude&travelmode=driving";
+          "https://www.google.com/maps/dir/?api=1&destination=$lat,$lng&travelmode=driving";
       final appleMapsUrl =
-          "maps://maps.apple.com/?daddr=$latitude,$longitude&dirflg=d";
+          "maps://maps.apple.com/?daddr=$lat,$lng&dirflg=d";
 
       if (await canLaunchUrl(Uri.parse(googleMapsUrl))) {
         await launchUrl(Uri.parse(googleMapsUrl),
@@ -201,10 +63,10 @@ class _LivreurNavigationScreenState extends State<LivreurNavigationScreen> {
         await launchUrl(Uri.parse(appleMapsUrl),
             mode: LaunchMode.externalApplication);
       } else {
-        _showErrorSnackBar("Could not launch navigation app");
+        _showErrorSnackBar("Impossible de lancer l'application GPS");
       }
     } catch (e) {
-      _showErrorSnackBar("Error launching GPS: $e");
+      _showErrorSnackBar("Erreur GPS : $e");
     }
   }
 
@@ -213,35 +75,49 @@ class _LivreurNavigationScreenState extends State<LivreurNavigationScreen> {
     String newStatus,
   ) async {
     try {
-      final colisId = package["id"];
       final deliveryNote =
           newStatus == "delivered" ? "Delivered by livreur" : "In transit";
-
       await _api.updatePackageStatus(
-        colisId,
+        package["id"],
         status: newStatus,
         deliveryNote: deliveryNote,
       );
-
       if (!mounted) return;
       Navigator.pop(context);
       await _fetchAssignedPackages();
-      _showSuccessSnackBar("Package status updated");
+      _showSuccessSnackBar("Statut mis à jour");
     } catch (e) {
-      _showErrorSnackBar("Failed to update package status: $e");
+      _showErrorSnackBar("Échec de la mise à jour : $e");
     }
   }
 
   void _showPackageDetailsBottomSheet(Map<String, dynamic> package) {
     showModalBottomSheet(
       context: context,
-      builder: (context) => Container(
-        padding: const EdgeInsets.all(16),
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (context) => Padding(
+        padding: const EdgeInsets.all(20),
         child: SingleChildScrollView(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
+              // Poignée
+              Center(
+                child: Container(
+                  width: 40, height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // En-tête
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -250,77 +126,60 @@ class _LivreurNavigationScreenState extends State<LivreurNavigationScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          "Tracking: ${package["tracking_number"]}",
+                          "Tracking: ${package["tracking_number"] ?? 'N/A'}",
                           style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.grey,
-                          ),
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.grey),
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          package["recipient_name"] ?? "Unknown",
+                          package["recipient_name"] ?? "Inconnu",
                           style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
+                              fontSize: 18, fontWeight: FontWeight.bold),
                         ),
                       ],
                     ),
                   ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: _getStatusColor(package["status"]),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(
-                      package["status"]?.toString().toUpperCase() ?? "UNKNOWN",
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
+                  _statusBadge(package["status"]),
                 ],
               ),
               const SizedBox(height: 16),
+              const Divider(),
+              const SizedBox(height: 8),
 
-              _buildInfoSection("Recipient Information", [
-                ("Name", package["recipient_name"] ?? "N/A"),
-                ("Phone", package["recipient_phone"] ?? "N/A"),
-                ("Email", package["recipient_email"] ?? "N/A"),
+              _infoSection("Destinataire", [
+                ("Nom",       package["recipient_name"]  ?? "N/A"),
+                ("Téléphone", package["recipient_phone"] ?? "N/A"),
+                ("Email",     package["recipient_email"] ?? "N/A"),
               ]),
               const SizedBox(height: 12),
 
-              _buildInfoSection("Delivery Address", [
-                ("Address", package["delivery_address"] ?? "N/A"),
+              _infoSection("Adresse de livraison", [
+                ("Adresse", package["delivery_address"] ?? "N/A"),
               ]),
               const SizedBox(height: 12),
 
-              _buildInfoSection("Package Details", [
-                ("Weight", "${package["weight_kg"] ?? 0} kg"),
+              _infoSection("Détails du colis", [
+                ("Poids",      "${package["weight_kg"] ?? 0} kg"),
                 ("Dimensions", package["dimensions"] ?? "N/A"),
-                ("Priority",
-                    package["priority"]?.toString().toUpperCase() ?? "NORMAL"),
-                ("Contents", package["contents"] ?? "N/A"),
+                ("Priorité",   package["priority"]?.toString().toUpperCase() ?? "NORMAL"),
+                ("Contenu",    package["contents"] ?? "N/A"),
               ]),
               const SizedBox(height: 20),
 
+              // Boutons d'action
               Row(
                 children: [
                   Expanded(
-                    child: ElevatedButton.icon(
+                    child: OutlinedButton.icon(
                       onPressed: () => _launchGPS(package),
                       icon: const Icon(Icons.navigation),
-                      label: const Text("Launch GPS"),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blue,
-                        foregroundColor: Colors.white,
-                        padding:
-                            const EdgeInsets.symmetric(vertical: 12),
+                      label: const Text("GPS"),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.blue,
+                        side: const BorderSide(color: Colors.blue),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
                       ),
                     ),
                   ),
@@ -330,36 +189,23 @@ class _LivreurNavigationScreenState extends State<LivreurNavigationScreen> {
                       onPressed: package["status"] == "delivered"
                           ? null
                           : () {
-                              final newStatus =
-                                  package["status"] == "assigned"
-                                      ? "in_transit"
-                                      : "delivered";
-                              _updatePackageStatus(package, newStatus);
+                              final next = package["status"] == "assigned"
+                                  ? "in_transit"
+                                  : "delivered";
+                              _updatePackageStatus(package, next);
                             },
-                      icon: Icon(
-                        package["status"] == "delivered"
-                            ? Icons.check_circle
-                            : package["status"] == "in_transit"
-                                ? Icons.local_shipping
-                                : Icons.schedule,
-                      ),
-                      label: Text(
-                        package["status"] == "delivered"
-                            ? "Delivered"
-                            : package["status"] == "in_transit"
-                                ? "Mark Delivered"
-                                : "Start Delivery",
-                      ),
+                      icon: Icon(_statusNextIcon(package["status"])),
+                      label: Text(_statusNextLabel(package["status"])),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.green,
                         foregroundColor: Colors.white,
-                        padding:
-                            const EdgeInsets.symmetric(vertical: 12),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
                       ),
                     ),
                   ),
                 ],
               ),
+              const SizedBox(height: 8),
             ],
           ),
         ),
@@ -367,43 +213,56 @@ class _LivreurNavigationScreenState extends State<LivreurNavigationScreen> {
     );
   }
 
-  Widget _buildInfoSection(String title, List<(String, String)> items) {
+  // ── Helpers UI ──────────────────────────────────────────────────────────────
+
+  Widget _statusBadge(String? status) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: _statusColor(status),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        status?.toUpperCase() ?? "UNKNOWN",
+        style: const TextStyle(
+            color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+      ),
+    );
+  }
+
+  Widget _infoSection(String title, List<(String, String)> items) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          title,
-          style: const TextStyle(
-              fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey),
-        ),
-        const SizedBox(height: 8),
-        ...items.map(
-          (item) => Padding(
-            padding: const EdgeInsets.symmetric(vertical: 4),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(item.$1,
-                    style: const TextStyle(
-                        fontSize: 13, color: Colors.grey)),
-                Expanded(
-                  child: Text(
-                    item.$2,
-                    textAlign: TextAlign.right,
-                    style: const TextStyle(
-                        fontSize: 13, fontWeight: FontWeight.w500),
-                    overflow: TextOverflow.ellipsis,
+        Text(title,
+            style: const TextStyle(
+                fontSize: 13, fontWeight: FontWeight.bold, color: Colors.grey)),
+        const SizedBox(height: 6),
+        ...items.map((item) => Padding(
+              padding: const EdgeInsets.symmetric(vertical: 3),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(item.$1,
+                      style: const TextStyle(
+                          fontSize: 13, color: Colors.grey)),
+                  Expanded(
+                    child: Text(
+                      item.$2,
+                      textAlign: TextAlign.right,
+                      style: const TextStyle(
+                          fontSize: 13, fontWeight: FontWeight.w500),
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
-                ),
-              ],
-            ),
-          ),
-        ),
+                ],
+              ),
+            )),
       ],
     );
   }
 
-  Color _getStatusColor(String? status) {
+  Color _statusColor(String? status) {
     switch (status) {
       case "delivered":  return Colors.green;
       case "in_transit": return Colors.orange;
@@ -411,6 +270,18 @@ class _LivreurNavigationScreenState extends State<LivreurNavigationScreen> {
       case "failed":     return Colors.red;
       default:           return Colors.grey;
     }
+  }
+
+  IconData _statusNextIcon(String? status) {
+    if (status == "delivered")  return Icons.check_circle;
+    if (status == "in_transit") return Icons.local_shipping;
+    return Icons.schedule;
+  }
+
+  String _statusNextLabel(String? status) {
+    if (status == "delivered")  return "Livré";
+    if (status == "in_transit") return "Marquer livré";
+    return "Démarrer";
   }
 
   void _showErrorSnackBar(String message) {
@@ -427,13 +298,24 @@ class _LivreurNavigationScreenState extends State<LivreurNavigationScreen> {
     );
   }
 
+  // ── Build ───────────────────────────────────────────────────────────────────
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.grey[100],
       appBar: AppBar(
-        title: const Text("Livreur Navigation"),
+        title: const Text("Mes livraisons"),
         backgroundColor: Colors.blue,
+        foregroundColor: Colors.white,
         elevation: 0,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _fetchAssignedPackages,
+            tooltip: "Actualiser",
+          ),
+        ],
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
@@ -445,87 +327,122 @@ class _LivreurNavigationScreenState extends State<LivreurNavigationScreen> {
                       const Icon(Icons.error_outline,
                           size: 64, color: Colors.red),
                       const SizedBox(height: 16),
-                      Text(
-                        "Error: $_error",
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(color: Colors.red),
-                      ),
+                      Text("Erreur : $_error",
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(color: Colors.red)),
                       const SizedBox(height: 16),
                       ElevatedButton(
-                        onPressed: () {
-                          setState(() {
-                            _loading = true;
-                            _error = null;
-                          });
-                          _initializeScreen();
-                        },
-                        child: const Text("Retry"),
+                        onPressed: _fetchAssignedPackages,
+                        child: const Text("Réessayer"),
                       ),
                     ],
                   ),
                 )
-              : _currentLocation == null
+              : _packages.isEmpty
                   ? const Center(
-                      child: Text("Unable to determine current location"),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.inbox, size: 64, color: Colors.grey),
+                          SizedBox(height: 12),
+                          Text("Aucun colis assigné",
+                              style: TextStyle(
+                                  fontSize: 16, color: Colors.grey)),
+                        ],
+                      ),
                     )
-                  : Stack(
+                  : Column(
                       children: [
-                        GoogleMap(
-                          initialCameraPosition: CameraPosition(
-                            target: _currentLocation!,
-                            zoom: _defaultZoom,
-                          ),
-                          onMapCreated: (controller) {
-                            _mapController = controller;
-                          },
-                          markers: _markers,
-                          polylines: _polylines,
-                          myLocationEnabled: true,
-                          myLocationButtonEnabled: true,
-                          zoomControlsEnabled: true,
-                        ),
-
-                        Positioned(
-                          top: 16,
-                          right: 16,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 8),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(20),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withOpacity(0.2),
-                                  blurRadius: 4,
-                                  offset: const Offset(0, 2),
-                                ),
-                              ],
-                            ),
-                            child: Text(
-                              "Packages: ${_packages.length}",
-                              style: const TextStyle(
-                                  fontWeight: FontWeight.bold, fontSize: 12),
-                            ),
+                        // Compteur
+                        Container(
+                          width: double.infinity,
+                          color: Colors.blue,
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                          child: Text(
+                            "${_packages.length} colis assigné${_packages.length > 1 ? 's' : ''}",
+                            style: const TextStyle(
+                                color: Colors.white70, fontSize: 13),
                           ),
                         ),
-
-                        Positioned(
-                          bottom: 16,
-                          left: 16,
-                          child: FloatingActionButton(
-                            mini: true,
-                            onPressed: () async {
-                              setState(() => _loading = true);
-                              await _fetchAssignedPackages();
-                              if (mounted) setState(() => _loading = false);
-                            },
-                            backgroundColor: Colors.blue,
-                            child: const Icon(Icons.refresh),
+                        // Liste
+                        Expanded(
+                          child: ListView.separated(
+                            padding: const EdgeInsets.all(12),
+                            itemCount: _packages.length,
+                            separatorBuilder: (_, _) =>
+                                const SizedBox(height: 8),
+                            itemBuilder: (context, i) =>
+                                _packageCard(_packages[i]),
                           ),
                         ),
                       ],
                     ),
+    );
+  }
+
+  Widget _packageCard(Map<String, dynamic> package) {
+    final status = package["status"] as String?;
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12)),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => _showPackageDetailsBottomSheet(package),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            children: [
+              // Icône statut
+              Container(
+                width: 44, height: 44,
+                decoration: BoxDecoration(
+                  color: _statusColor(status).withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  status == "delivered"
+                      ? Icons.check_circle
+                      : status == "in_transit"
+                          ? Icons.local_shipping
+                          : Icons.inventory_2,
+                  color: _statusColor(status),
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 12),
+              // Infos
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      package["recipient_name"] ?? "Inconnu",
+                      style: const TextStyle(
+                          fontSize: 14, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      package["delivery_address"] ?? "",
+                      style: const TextStyle(
+                          fontSize: 12, color: Colors.grey),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      "# ${package["tracking_number"] ?? ''}",
+                      style: const TextStyle(
+                          fontSize: 11, color: Colors.blueGrey),
+                    ),
+                  ],
+                ),
+              ),
+              // Badge statut
+              _statusBadge(status),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
