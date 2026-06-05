@@ -148,46 +148,74 @@ class ReservationOutputSerializer(serializers.ModelSerializer):
     departure_at     = serializers.SerializerMethodField()
     arrival_at       = serializers.SerializerMethodField()
     carrier_name     = serializers.SerializerMethodField()
+    flight_number    = serializers.SerializerMethodField()
     livreur_id       = serializers.SerializerMethodField()
     livreur_name     = serializers.SerializerMethodField()
 
-    def _slices(self, obj):
-        return (obj.raw_duffel_order or {}).get("slices") or []
+    def _itinerary_segments(self, obj):
+        """
+        Extract the first itinerary's segment list from whatever is stored
+        in raw_duffel_order, handling two Amadeus shapes:
+          - Pending (offer):    {"itineraries": [...], ...}
+          - Confirmed (order):  {"flightOffers": [{"itineraries": [...]}], ...}
+        """
+        raw = obj.raw_duffel_order or {}
+        # Shape 1: direct offer
+        itineraries = raw.get("itineraries")
+        if not itineraries:
+            # Shape 2: Amadeus order wraps offers
+            offers = raw.get("flightOffers") or []
+            if offers:
+                itineraries = offers[0].get("itineraries") or []
+        if not itineraries:
+            return []
+        return itineraries[0].get("segments") or []
 
     def get_origin_iata(self, obj):
-        slices = self._slices(obj)
-        if not slices:
+        segs = self._itinerary_segments(obj)
+        if not segs:
             return ""
-        seg = (slices[0].get("segments") or [{}])[0]
-        return (seg.get("origin") or {}).get("iata_code", "")
+        return (segs[0].get("departure") or {}).get("iataCode", "")
 
     def get_destination_iata(self, obj):
-        slices = self._slices(obj)
-        if not slices:
+        segs = self._itinerary_segments(obj)
+        if not segs:
             return ""
-        last_seg = (slices[0].get("segments") or [{}])[-1]
-        return (last_seg.get("destination") or {}).get("iata_code", "")
+        return (segs[-1].get("arrival") or {}).get("iataCode", "")
 
     def get_departure_at(self, obj):
-        slices = self._slices(obj)
-        if not slices:
+        segs = self._itinerary_segments(obj)
+        if not segs:
             return ""
-        seg = (slices[0].get("segments") or [{}])[0]
-        return seg.get("departing_at", "")
+        return (segs[0].get("departure") or {}).get("at", "")
 
     def get_arrival_at(self, obj):
-        slices = self._slices(obj)
-        if not slices:
+        segs = self._itinerary_segments(obj)
+        if not segs:
             return ""
-        last_seg = (slices[0].get("segments") or [{}])[-1]
-        return last_seg.get("arriving_at", "")
+        return (segs[-1].get("arrival") or {}).get("at", "")
 
     def get_carrier_name(self, obj):
-        slices = self._slices(obj)
-        if not slices:
+        segs = self._itinerary_segments(obj)
+        if not segs:
             return ""
-        seg = (slices[0].get("segments") or [{}])[0]
-        return (seg.get("marketing_carrier") or {}).get("name", "")
+        seg = segs[0]
+        # Amadeus segment uses carrierCode; resolve name from dictionaries if available
+        raw    = obj.raw_duffel_order or {}
+        offers = raw.get("flightOffers") or []
+        dicts  = raw.get("dictionaries") or (offers[0].get("dictionaries") if offers else None) or {}
+        carriers = dicts.get("carriers", {})
+        code = seg.get("carrierCode", "")
+        return carriers.get(code, code)
+
+    def get_flight_number(self, obj):
+        segs = self._itinerary_segments(obj)
+        if not segs:
+            return ""
+        seg = segs[0]
+        carrier_code = seg.get("carrierCode", "")
+        number = seg.get("number", "")
+        return f"{carrier_code} {number}".strip() if carrier_code or number else ""
 
     def get_livreur_id(self, obj):
         return str(obj.livreur_id) if obj.livreur_id else None
@@ -204,7 +232,7 @@ class ReservationOutputSerializer(serializers.ModelSerializer):
             "offer_id", "external_order_id", "booking_reference",
             "status", "total_amount", "currency",
             "origin_iata", "destination_iata", "departure_at", "arrival_at",
-            "carrier_name", "livreur_id", "livreur_name",
+            "carrier_name", "flight_number", "livreur_id", "livreur_name",
             "passengers", "created_at", "updated_at",
         ]
 
