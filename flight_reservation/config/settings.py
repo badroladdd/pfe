@@ -97,6 +97,7 @@ CORS_ALLOW_ALL_ORIGINS = True  # Restrict to specific origins in production
 CORS_ALLOW_CREDENTIALS = True
 
 # Email Configuration
+EMAIL_TIMEOUT = 10  # seconds — prevents SMTP from hanging gunicorn workers
 EMAIL_BACKEND = os.environ.get(
     "EMAIL_BACKEND",
     "django.core.mail.backends.console.EmailBackend"
@@ -120,20 +121,17 @@ AMADEUS_TIMEOUT_SECONDS = int(os.environ.get("AMADEUS_TIMEOUT_SECONDS", "30"))
 DUFFEL_API_KEY         = os.environ.get("DUFFEL_API_KEY", "")
 DUFFEL_TIMEOUT_SECONDS = int(os.environ.get("DUFFEL_TIMEOUT_SECONDS", "30"))
 
-# Cache — use Redis in production, local memory in development
-if DEBUG:
-    CACHES = {
-        "default": {
-            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
-        }
+_redis_url = os.environ.get("REDIS_URL")
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "LOCATION": _redis_url,
     }
-else:
-    CACHES = {
-        "default": {
-            "BACKEND": "django.core.cache.backends.redis.RedisCache",
-            "LOCATION": os.environ.get("REDIS_URL", "redis://localhost:6379/0"),
-        }
+    if _redis_url
+    else {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
     }
+}
 
 # Celery
 CELERY_BROKER_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
