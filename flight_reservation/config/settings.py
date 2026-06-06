@@ -27,6 +27,7 @@ INSTALLED_APPS = [
     "apps.reservations",
     "apps.flights",
     "apps.deliveries",
+    "anymail",
 ]
 
 MIDDLEWARE = [
@@ -97,17 +98,15 @@ CORS_ALLOW_ALL_ORIGINS = True  # Restrict to specific origins in production
 CORS_ALLOW_CREDENTIALS = True
 
 # Email Configuration
-EMAIL_TIMEOUT = 10  # seconds — prevents SMTP from hanging gunicorn workers
-EMAIL_BACKEND = os.environ.get(
-    "EMAIL_BACKEND",
-    "django.core.mail.backends.console.EmailBackend"
-)
-EMAIL_HOST = os.environ.get("EMAIL_HOST", "smtp.gmail.com")
-EMAIL_PORT = int(os.environ.get("EMAIL_PORT", "587"))
-EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS", "True") == "True"
-EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
-EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
-DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "noreply@deliveryservice.com")
+DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "FlyApp <onboarding@resend.dev>")
+
+if os.environ.get("RESEND_API_KEY"):
+    EMAIL_BACKEND = "anymail.backends.resend.EmailBackend"
+    ANYMAIL = {
+        "RESEND_API_KEY": os.environ.get("RESEND_API_KEY"),
+    }
+else:
+    EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 
 # Frontend URL for email verification links
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000")

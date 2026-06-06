@@ -36,3 +36,7 @@ services:
         sync: false
       - key: DUFFEL_API_KEY
         sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: DEFAULT_FROM_EMAIL
+        value: "FlyApp <onboarding@resend.dev>"
