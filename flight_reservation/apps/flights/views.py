@@ -4,88 +4,68 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.flights import services
+from core.amadeus_client import AmadeusClient
 from core.duffel_client import DuffelClient
 
-duffel = DuffelClient()
+amadeus = AmadeusClient()
+duffel  = DuffelClient()   # used for airport search only
 
 
 class FlightSearchView(APIView):
     """
     GET /api/v1/flights/search/
-
-    Query params: origin, destination, departure_date, adults, children,
-                  infants, travel_class (ECONOMY|BUSINESS|FIRST|PREMIUM_ECONOMY)
+    Query params: origin, destination, departure_date, return_date,
+                  adults, children, infants, children_ages,
+                  travel_class, non_stop, has_baggage, refundable,
+                  currency_code, max_results
     """
 
     permission_classes = [AllowAny]
 
     def get(self, request):
-        origin = request.query_params.get("origin", "").strip().upper()
+        origin      = request.query_params.get("origin", "").strip().upper()
         destination = request.query_params.get("destination", "").strip().upper()
         departure_date = request.query_params.get("departure_date", "").strip()
         return_date = request.query_params.get("return_date", "").strip() or None
         cabin_class = request.query_params.get("travel_class", "economy").lower()
+        currency    = request.query_params.get("currency_code", "EUR").upper()
 
         try:
-            adults   = int(request.query_params.get("adults", 1))
+            adults   = int(request.query_params.get("adults",   1))
             children = int(request.query_params.get("children", 0))
-            infants  = int(request.query_params.get("infants", 0))
+            infants  = int(request.query_params.get("infants",  0))
         except (ValueError, TypeError):
             return Response(
-                {"detail": "adults, children, and infants must be integers."},
+                {"detail": "adults, children and infants must be integers."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-
-        # children_ages: comma-separated ages e.g. "5,8"
-        raw_ages = request.query_params.get("children_ages", "")
-        children_ages = []
-        if raw_ages:
-            try:
-                children_ages = [int(a) for a in raw_ages.split(",") if a.strip()]
-            except ValueError:
-                pass
 
         if not origin or not destination or not departure_date:
             return Response(
-                {"detail": "origin, destination, and departure_date are required."},
+                {"detail": "origin, destination and departure_date are required."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-
         if origin == destination:
             return Response(
                 {"detail": "Origin and destination cannot be the same."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        if adults + children + infants == 0:
-            return Response(
-                {"detail": "At least one passenger is required."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # Duffel v2 : pour les enfants, utiliser SOIT type SOIT age (pas les deux)
-        child_passengers = []
+        # Build passengers list for Amadeus
+        passengers = [{"type": "adult"}] * max(adults, 1)
+        raw_ages   = request.query_params.get("children_ages", "")
+        ages       = [int(a) for a in raw_ages.split(",") if a.strip().isdigit()]
         for i in range(children):
-            if i < len(children_ages):
-                # Avec age : Duffel infere automatiquement le type
-                child_passengers.append({"age": children_ages[i]})
-            else:
-                # Sans age : utiliser type uniquement
-                child_passengers.append({"type": "child"})
+            passengers.append({"type": "child", "age": ages[i]} if i < len(ages) else {"type": "child"})
+        passengers += [{"type": "infant"}] * infants
 
-        passengers = (
-            [{"type": "adult"}] * adults
-            + child_passengers
-        )
+        def _bool(param: str) -> bool:
+            return request.query_params.get(param, "false").lower() in ("1", "true", "yes", "on")
 
-        raw_non_stop = request.query_params.get("non_stop", "false").strip().lower()
-        non_stop = raw_non_stop in ("1", "true", "t", "yes", "y", "on")
-
-        raw_has_baggage = request.query_params.get("has_baggage", "false").strip().lower()
-        has_baggage = raw_has_baggage in ("1", "true", "t", "yes", "y", "on")
-
-        raw_refundable = request.query_params.get("refundable", "false").strip().lower()
-        refundable = raw_refundable in ("1", "true", "t", "yes", "y", "on")
+        try:
+            max_results = int(request.query_params.get("max_results", 20))
+        except (ValueError, TypeError):
+            max_results = 20
 
         result = services.search_flights(
             origin=origin,
@@ -93,63 +73,106 @@ class FlightSearchView(APIView):
             departure_date=departure_date,
             passengers=passengers,
             cabin_class=cabin_class,
-            non_stop=non_stop,
-            has_baggage=has_baggage,
-            is_refundable=refundable,
+            non_stop=_bool("non_stop"),
+            has_baggage=_bool("has_baggage"),
+            is_refundable=_bool("refundable"),
             return_date=return_date,
+            currency=currency,
+            max_results=max_results,
         )
 
-        offers = [_attach_summary(o) for o in result.get("offers", [])]
-        return Response({"results": offers})
+        dictionaries = result.get("dictionaries", {})
+        offers = [_attach_summary(o, dictionaries) for o in result.get("offers", [])]
+        return Response({"results": offers, "count": len(offers)})
 
 
-def _attach_summary(offer: dict) -> dict:
-    """Add a _summary key with pre-computed fields so Flutter can read them easily."""
-    slices = offer.get("slices") or []
-    first_slice = slices[0] if slices else {}
-    outbound_slice = slices[0] if slices else {}
-    first_seg = (first_slice.get("segments") or [{}])[0]
-    last_seg = (outbound_slice.get("segments") or [{}])[-1]
+def _attach_summary(offer: dict, dictionaries: dict | None = None) -> dict:
+    """Add a _summary key with pre-computed fields for Flutter.
+    Also attaches `dictionaries` to the offer so Flutter can look up
+    carrier/aircraft names in FlightDetailScreen.
+    """
+    dicts       = dictionaries or {}
+    carriers    = dicts.get("carriers", {})
+    aircraft_db = dicts.get("aircraft", {})
 
-    stops = sum(max(len(s.get("segments", [])) - 1, 0) for s in slices)
-    carrier = (first_seg.get("marketing_carrier") or {}).get("name", "")
-    flight_number = (first_seg.get("marketing_carrier") or {}).get("iata_code", "") + \
-                    first_seg.get("marketing_carrier_flight_number", "")
+    itineraries = offer.get("itineraries", [])
+    first_it    = itineraries[0] if itineraries else {}
+    first_segs  = first_it.get("segments", [])
+    first_seg   = first_segs[0]  if first_segs else {}
+    last_seg    = first_segs[-1] if first_segs else {}
 
-    is_round_trip = len(slices) >= 2
-    return_info = None
+    origin_iata = (first_seg.get("departure") or {}).get("iataCode", "")
+    dest_iata   = (last_seg.get("arrival")    or {}).get("iataCode", "")
+    dep_at      = (first_seg.get("departure") or {}).get("at", "")
+    arr_at      = (last_seg.get("arrival")    or {}).get("at", "")
+    carrier_code = first_seg.get("carrierCode", "")
+    carrier_name = carriers.get(carrier_code, carrier_code)
+    flight_num   = carrier_code + first_seg.get("number", "")
+    stops        = max(len(first_segs) - 1, 0)
+
+    price    = offer.get("price", {})
+    total    = price.get("grandTotal", price.get("total", "0"))
+    currency = price.get("currency", "EUR")
+
+    # Baggage from travelerPricings
+    has_baggage = False
+    for tp in offer.get("travelerPricings", []):
+        for seg in tp.get("fareDetailsBySegment", []):
+            if (seg.get("includedCheckedBags") or {}).get("quantity", 0) > 0:
+                has_baggage = True
+                break
+
+    # Refundable
+    is_refundable = bool(offer.get("pricingOptions", {}).get("refundableFare", False))
+
+    # Round-trip
+    is_round_trip = len(itineraries) >= 2
+    return_info   = None
     if is_round_trip:
-        ret_slice = slices[1]
-        ret_first_seg = (ret_slice.get("segments") or [{}])[0]
-        ret_last_seg  = (ret_slice.get("segments") or [{}])[-1]
+        ret_it    = itineraries[1]
+        ret_segs  = ret_it.get("segments", [])
+        ret_first = ret_segs[0]  if ret_segs else {}
+        ret_last  = ret_segs[-1] if ret_segs else {}
         return_info = {
-            "origin":       (ret_slice.get("origin") or {}).get("iata_code", ""),
-            "destination":  (ret_slice.get("destination") or {}).get("iata_code", ""),
-            "departure_at": ret_first_seg.get("departing_at", ""),
-            "arrival_at":   ret_last_seg.get("arriving_at", ""),
-            "duration":     ret_slice.get("duration", ""),
+            "origin":       (ret_first.get("departure") or {}).get("iataCode", ""),
+            "destination":  (ret_last.get("arrival")    or {}).get("iataCode", ""),
+            "departure_at": (ret_first.get("departure") or {}).get("at", ""),
+            "arrival_at":   (ret_last.get("arrival")    or {}).get("at", ""),
+            "duration":     ret_it.get("duration", ""),
         }
 
     offer["_summary"] = {
-        "origin":       (first_slice.get("origin") or {}).get("iata_code", ""),
-        "destination":  (outbound_slice.get("destination") or {}).get("iata_code", ""),
-        "departure_at": first_seg.get("departing_at", ""),
-        "arrival_at":   last_seg.get("arriving_at", ""),
-        "carrier":      carrier,
-        "flight_number": flight_number,
-        "stops":        stops,
-        "duration":     first_slice.get("duration", ""),
-        "total_price":  offer.get("total_amount", "0"),
-        "currency":     offer.get("total_currency", "EUR"),
-        "seats_available": offer.get("available_seats"),
-        "is_round_trip": is_round_trip,
-        "return":       return_info,
+        "origin":          origin_iata,
+        "destination":     dest_iata,
+        "departure_at":    dep_at,
+        "arrival_at":      arr_at,
+        "carrier":         carrier_name,
+        "carrier_code":    carrier_code,
+        "flight_number":   flight_num,
+        "stops":           stops,
+        "duration":        first_it.get("duration", ""),
+        "total_price":     total,
+        "base_price":      price.get("base", total),
+        "currency":        currency,
+        "seats_available": offer.get("numberOfBookableSeats"),
+        "has_baggage":     has_baggage,
+        "is_refundable":   is_refundable,
+        "is_round_trip":   is_round_trip,
+        "return":          return_info,
+        "last_ticketing_date": offer.get("lastTicketingDate", ""),
+    }
+
+    # Attach dictionaries so Flutter can resolve carrier/aircraft names
+    offer["dictionaries"] = {
+        "carriers": carriers,
+        "aircraft": aircraft_db,
+        "locations": dicts.get("locations", {}),
     }
     return offer
 
 
 class AirportSearchView(APIView):
-    """GET /api/v1/airports/?query=paris — proxy to Duffel airport search."""
+    """GET /api/v1/airports/?query=alger — proxied to Duffel airport search."""
 
     permission_classes = [AllowAny]
 
@@ -157,9 +180,10 @@ class AirportSearchView(APIView):
         query = request.query_params.get("query", "").strip()
         if len(query) < 2:
             return Response({"data": []})
-        places = duffel.search_airports(query)
+
+        places  = duffel.search_airports(query)
         results = []
-        seen = set()
+        seen    = set()
 
         def _add(a):
             iata = a.get("iata_code", "")
@@ -175,7 +199,6 @@ class AirportSearchView(APIView):
 
         for p in places:
             if p.get("type") == "city":
-                # expand nested airports
                 for a in p.get("airports", []):
                     _add(a)
             elif p.get("type") == "airport":
@@ -187,41 +210,38 @@ class AirportSearchView(APIView):
 class ConfirmPriceView(APIView):
     """
     POST /api/v1/flights/confirm-price/
-    Body: { "flight_offer": { "id": "off_..." } }
+    Body: { "flight_offer": { ...full Amadeus offer... } }
     """
 
     permission_classes = [AllowAny]
 
     def post(self, request):
         flight_offer = request.data.get("flight_offer", {})
-        offer_id = flight_offer.get("id") or flight_offer.get("offer_id")
-
-        if not offer_id:
+        if not flight_offer.get("id"):
             return Response(
-                {"detail": "flight_offer.id is required."},
+                {"detail": "flight_offer is required."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-
-        offer = duffel.get_offer(offer_id)
-        return Response({"data": offer})
+        confirmed = amadeus.confirm_offer_price(flight_offer)
+        dicts = flight_offer.get("dictionaries", {})
+        return Response({"data": _attach_summary(confirmed, dicts)})
 
 
 class RecommendationsView(APIView):
     """
     GET /api/v1/recommendations/?origin=ALG
-    Applique l'algorithme A priori sur les reservations confirmees
-    et retourne les destinations les plus souvent associees a l'origine.
+    A priori algorithm on confirmed reservations.
     """
 
     permission_classes = [AllowAny]
 
     def get(self, request):
-        origin      = request.query_params.get("origin",      "").strip().upper()
+        origin      = request.query_params.get("origin", "").strip().upper()
         destination = request.query_params.get("destination", "").strip().upper()
 
         if not origin or len(origin) != 3:
             return Response(
-                {"detail": "origin (code IATA 3 lettres) est requis."},
+                {"detail": "origin (IATA 3-letter code) is required."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 

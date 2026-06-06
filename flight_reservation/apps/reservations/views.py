@@ -85,6 +85,7 @@ class ReservationListCreateView(APIView):
             offer_id=d["offer_id"],
             passengers_data=d["passengers"],
             payment_data=d["payment"],
+            flight_offer=flight_offer,
             payment_method=payment_method,
             promo_code=promo_code,
         )
@@ -214,8 +215,8 @@ class AgentReservationsView(APIView):
             "passengers": _convert_flutter_passengers(flutter_passengers, offer_passengers),
             "payment": {
                 "type": "balance",
-                "amount": str(flight_offer.get("total_amount", "0")),
-                "currency": flight_offer.get("total_currency", "EUR"),
+                "amount": str((flight_offer.get("price") or {}).get("grandTotal", "0")),
+                "currency": (flight_offer.get("price") or {}).get("currency", "EUR"),
             },
         }
         serializer = CreateReservationSerializer(data=payload)
@@ -226,6 +227,7 @@ class AgentReservationsView(APIView):
             offer_id=d["offer_id"],
             passengers_data=d["passengers"],
             payment_data=d["payment"],
+            flight_offer=flight_offer,
         )
         return Response({"data": ReservationOutputSerializer(reservation).data}, status=status.HTTP_201_CREATED)
 
@@ -266,6 +268,9 @@ class AgentReservationActionView(APIView):
                 return Response({"detail": "Only confirmed reservations can be marked as emis."}, status=status.HTTP_400_BAD_REQUEST)
             reservation.status = Reservation.Status.EMIS
             reservation.save(update_fields=["status", "updated_at"])
+            # Send ticket email to client
+            from apps.reservations.services import send_ticket_email
+            send_ticket_email(reservation)
 
         elif new_status == "assign_livreur":
             if reservation.status in (Reservation.Status.PENDING, Reservation.Status.CANCELLED):

@@ -1,10 +1,12 @@
 import logging
 from decimal import Decimal
 
+from django.conf import settings
+from django.core.mail import send_mail
 from django.db import transaction
 
 from apps.reservations.models import Passenger, Reservation
-from core.duffel_client import DuffelClient
+from core.amadeus_client import AmadeusClient
 from core.exceptions import (
     CancellationNotAllowedException,
     DuplicateBookingException,
@@ -13,8 +15,80 @@ from core.exceptions import (
 
 logger = logging.getLogger("reservations")
 
-# Module-level singleton — one session reused across requests
-duffel = DuffelClient()
+amadeus = AmadeusClient()
+
+
+# ── Email helpers ─────────────────────────────────────────────────────────────
+
+def _extract_flight_info(offer: dict) -> dict:
+    """Extract key flight details from an Amadeus offer or order."""
+    itineraries = offer.get("itineraries") or []
+    if not itineraries:
+        # Amadeus order wraps offers
+        offers = offer.get("flightOffers") or []
+        if offers:
+            itineraries = offers[0].get("itineraries") or []
+
+    if not itineraries:
+        return {}
+
+    segs  = itineraries[0].get("segments") or []
+    first = segs[0]  if segs else {}
+    last  = segs[-1] if segs else {}
+
+    dicts    = offer.get("dictionaries") or {}
+    carriers = dicts.get("carriers", {})
+    code     = first.get("carrierCode", "")
+
+    return {
+        "origin":      (first.get("departure") or {}).get("iataCode", ""),
+        "destination": (last.get("arrival")    or {}).get("iataCode", ""),
+        "departure_at": (first.get("departure") or {}).get("at", ""),
+        "arrival_at":   (last.get("arrival")    or {}).get("at", ""),
+        "carrier":      carriers.get(code, code),
+        "flight_number": code + (first.get("number") or ""),
+        "stops":        len(segs) - 1,
+    }
+
+
+def send_ticket_email(reservation: Reservation) -> None:
+    """Send ticket confirmation email to the client after CIB/electronic payment."""
+    user   = reservation.user
+    flight = _extract_flight_info(reservation.raw_duffel_order or {})
+
+    dep = flight.get("departure_at", "")[:16].replace("T", " à ")
+    arr = flight.get("arrival_at",   "")[:16].replace("T", " à ")
+
+    subject = f"Votre billet FlyApp — {flight.get('origin','?')} → {flight.get('destination','?')}"
+    message = (
+        f"Bonjour {user.first_name},\n\n"
+        f"Votre billet a été émis avec succès. Voici vos détails de vol :\n\n"
+        f"  Référence PNR    : {reservation.booking_reference}\n"
+        f"  Vol              : {flight.get('flight_number','')}\n"
+        f"  Compagnie        : {flight.get('carrier','')}\n"
+        f"  Départ           : {flight.get('origin','?')}  {dep}\n"
+        f"  Arrivée          : {flight.get('destination','?')}  {arr}\n"
+        f"  Escales          : {flight.get('stops', 0)}\n"
+        f"  Montant payé     : {reservation.total_amount} {reservation.currency}\n\n"
+        f"Passagers :\n"
+        + "".join(
+            f"  - {p.first_name} {p.last_name} ({p.type})\n"
+            for p in reservation.passengers.all()
+        )
+        + "\nMerci d'avoir choisi FlyApp. Bon voyage !\n\n"
+        f"L'équipe FlyApp"
+    )
+    try:
+        send_mail(
+            subject,
+            message,
+            settings.DEFAULT_FROM_EMAIL,
+            [user.email],
+            fail_silently=False,
+        )
+        logger.info("Ticket email sent to %s for reservation %s", user.email, reservation.id)
+    except Exception as e:
+        logger.error("Failed to send ticket email to %s: %s", user.email, e)
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -26,17 +100,20 @@ def create_reservation(
     offer_id: str,
     passengers_data: list[dict],
     payment_data: dict,
+    flight_offer: dict | None = None,
     payment_method: str = "cash",
     promo_code: str | None = None,
 ) -> Reservation:
     """
     Deux flux selon le mode de paiement :
+    - cash : sauvegarde PENDING, agent confirme plus tard via Amadeus
+    - cib  : appelle Amadeus immédiatement → CONFIRMED
 
-    - cash (à la livraison) : sauvegarde PENDING, agent confirme plus tard
-    - cib  (carte bancaire) : appelle Duffel immédiatement → CONFIRMED
+    `flight_offer` must be the full Amadeus offer object (required for booking).
+    `offer_id` is kept for de-duplication only.
     """
 
-    # ── 0. Valider et appliquer le code promo ────────────────────────
+    # ── 0. Promo code ────────────────────────────────────────────────
     promo = None
     if promo_code:
         from apps.reservations.models import PromoCode
@@ -56,75 +133,72 @@ def create_reservation(
     if already_exists:
         raise DuplicateBookingException()
 
-    # ── 2. Validate offer is still live ──────────────────────────────
-    offer = duffel.get_offer(offer_id)
+    offer        = flight_offer or {}
+    price        = offer.get("price", {})
+    total_str    = price.get("grandTotal", price.get("total", str(payment_data.get("amount", "0"))))
+    currency     = price.get("currency", payment_data.get("currency", "EUR"))
+    travelers    = _build_amadeus_travelers(passengers_data)
+
     logger.info(
         "Offer validated: id=%s total=%s %s",
-        offer_id,
-        offer.get("total_amount"),
-        offer.get("total_currency"),
+        offer_id, total_str, currency,
     )
 
-    duffel_passengers = _build_duffel_passengers(passengers_data)
-    duffel_payment    = _build_duffel_payment(
-        payment_data,
-        duffel_offer_amount=offer.get("total_amount")
-    )
-    reservation_amount = Decimal(str(payment_data["amount"]))
+    reservation_amount = Decimal(str(payment_data.get("amount", total_str)))
 
-    # ── 3a. Paiement carte (CIB) — confirmation immédiate ────────────
+    # ── 3a. CIB — immediate Amadeus booking, auto-emis + email ──────────
     if payment_method == "cib":
-        duffel_order = duffel.create_order(
-            offer_id=offer_id,
-            passengers=duffel_passengers,
-            payment=duffel_payment,
-            metadata={"user_id": str(user.id), "payment_method": "cib"},
+        amadeus_order = amadeus.create_order(
+            flight_offer=offer,
+            travelers=travelers,
         )
+        ext_id   = amadeus_order.get("id", "")
+        book_ref = _extract_booking_ref(amadeus_order)
+
         with transaction.atomic():
             reservation = Reservation.objects.create(
                 user=user,
                 offer_id=offer_id,
-                status=Reservation.Status.CONFIRMED,
+                status=Reservation.Status.EMIS,   # auto-emitted for electronic payment
                 total_amount=reservation_amount,
-                currency=duffel_order.get("total_currency", "EUR"),
-                external_order_id=duffel_order["id"],
-                booking_reference=duffel_order.get("booking_reference", ""),
-                raw_duffel_order=duffel_order,
+                currency=currency,
+                external_order_id=ext_id,
+                booking_reference=book_ref,
+                raw_duffel_order=amadeus_order,
                 pending_booking_data=None,
             )
             Passenger.objects.bulk_create([
-                _build_passenger_obj(reservation, p, duffel_order)
+                _build_passenger_obj(reservation, p)
                 for p in passengers_data
             ])
             if promo:
                 promo.used_count += 1
                 promo.save(update_fields=["used_count"])
             logger.info(
-                "Reservation confirmed instantly (CIB): id=%s order=%s user=%s promo=%s",
-                reservation.id, duffel_order["id"], user.email, promo.code if promo else None,
+                "Reservation emis instantly (CIB): id=%s order=%s user=%s promo=%s",
+                reservation.id, ext_id, user.email, promo.code if promo else None,
             )
-            return reservation
 
-    # ── 3b. Paiement ultérieurement (cash) — attente agent ───────────
+        # Send ticket email outside transaction (non-critical)
+        send_ticket_email(reservation)
+        return reservation
+
+    # ── 3b. Cash — PENDING, agent will confirm later ──────────────────
     with transaction.atomic():
-        # L'UI applique déjà le code promo et ajuste le montant du paiement
-        # Le montant sauvegardé est le montant réel à payer (déjà réduit si code appliqué)
-        total_amount = reservation_amount
-        
         reservation = Reservation.objects.create(
             user=user,
             offer_id=offer_id,
             status=Reservation.Status.PENDING,
-            total_amount=total_amount,
-            currency=offer.get("total_currency", "EUR"),
-            raw_duffel_order=offer,
+            total_amount=reservation_amount,
+            currency=currency,
+            raw_duffel_order=offer,           # store the full Amadeus offer
             pending_booking_data={
-                "duffel_passengers": duffel_passengers,
-                "payment": duffel_payment,
+                "flight_offer":      offer,
+                "amadeus_travelers": travelers,
             },
         )
         Passenger.objects.bulk_create([
-            _build_passenger_obj_pending(reservation, p)
+            _build_passenger_obj(reservation, p)
             for p in passengers_data
         ])
         if promo:
@@ -137,51 +211,56 @@ def create_reservation(
         return reservation
 
 
+# ══════════════════════════════════════════════════════════════════════
+#  CONFIRM RESERVATION  (agent action → calls Amadeus)
+# ══════════════════════════════════════════════════════════════════════
+
 def confirm_reservation(reservation: Reservation, agent) -> Reservation:
     """
-    Agent confirmation flow:
-      1. Read stored pending_booking_data
-      2. Call Duffel create_order (irreversible)
-      3. Update DB with order data and set status=CONFIRMED
+    Agent confirmation:
+      1. Read pending_booking_data (flight_offer + amadeus_travelers)
+      2. Call Amadeus create_order (irreversible)
+      3. Update DB → CONFIRMED
     """
     if reservation.status != Reservation.Status.PENDING:
-        from core.exceptions import CancellationNotAllowedException
         raise CancellationNotAllowedException("Only pending reservations can be confirmed.")
 
-    data = reservation.pending_booking_data or {}
-    duffel_passengers = data.get("duffel_passengers", [])
-    payment = data.get("payment", {})
+    data          = reservation.pending_booking_data or {}
+    flight_offer  = data.get("flight_offer", {})
+    travelers     = data.get("amadeus_travelers", [])
 
-    # ── Call Duffel — outside atomic block ────────────────────────────
-    duffel_order = duffel.create_order(
-        offer_id=reservation.offer_id,
-        passengers=duffel_passengers,
-        payment=payment,
-        metadata={"user_id": str(reservation.user.id), "confirmed_by": str(agent.id)},
+    if not flight_offer:
+        raise CancellationNotAllowedException("Missing flight offer data — cannot confirm.")
+
+    # Call Amadeus — outside atomic block (irreversible)
+    amadeus_order     = amadeus.create_order(
+        flight_offer=flight_offer,
+        travelers=travelers,
+        payment_method="CASH",
     )
-    external_order_id = duffel_order["id"]
+    external_order_id = amadeus_order.get("id", "")
+    booking_reference = _extract_booking_ref(amadeus_order)
 
     try:
         with transaction.atomic():
-            reservation.external_order_id = external_order_id
-            reservation.status = Reservation.Status.CONFIRMED
-            reservation.total_amount = Decimal(str(duffel_order["total_amount"]))
-            reservation.currency = duffel_order["total_currency"]
-            reservation.booking_reference = duffel_order.get("booking_reference", "")
-            reservation.raw_duffel_order = duffel_order
+            reservation.external_order_id  = external_order_id
+            reservation.status             = Reservation.Status.CONFIRMED
+            reservation.booking_reference  = booking_reference
+            reservation.raw_duffel_order   = amadeus_order
             reservation.pending_booking_data = None
             reservation.save(update_fields=[
-                "external_order_id", "status", "total_amount", "currency",
-                "booking_reference", "raw_duffel_order", "pending_booking_data", "updated_at",
+                "external_order_id", "status", "booking_reference",
+                "raw_duffel_order", "pending_booking_data", "updated_at",
             ])
             logger.info(
-                "Reservation confirmed by agent: id=%s order=%s agent=%s",
-                reservation.id, external_order_id, agent.email,
+                "Reservation confirmed by agent: id=%s order=%s booking_ref=%s agent=%s",
+                reservation.id, external_order_id, booking_reference, agent.email,
             )
             return reservation
     except Exception as db_error:
         logger.critical(
-            "DB WRITE FAILED after Duffel order! RECONCILE: external_order_id=%s reservation=%s error=%s",
+            "DB WRITE FAILED after Amadeus order! RECONCILE: "
+            "external_order_id=%s reservation=%s error=%s",
             external_order_id, reservation.id, db_error, exc_info=True,
         )
         raise
@@ -192,11 +271,6 @@ def confirm_reservation(reservation: Reservation, agent) -> Reservation:
 # ══════════════════════════════════════════════════════════════════════
 
 def get_reservation(reservation_id, user) -> Reservation:
-    """
-    Fetch a single reservation.
-    - Admin / Agent: can access any reservation.
-    - Client: can only access their own.
-    """
     try:
         qs = Reservation.objects.select_related("user").prefetch_related("passengers")
         if user.role == "client":
@@ -207,16 +281,9 @@ def get_reservation(reservation_id, user) -> Reservation:
 
 
 def list_reservations(user, filters: dict | None = None):
-    """
-    List reservations with optional filtering.
-    - Admin / Agent: see all.
-    - Client: see only their own.
-    """
     qs = Reservation.objects.select_related("user").prefetch_related("passengers")
-
     if user.role == "client":
         qs = qs.filter(user=user)
-
     if filters:
         if status := filters.get("status"):
             qs = qs.filter(status=status)
@@ -224,7 +291,6 @@ def list_reservations(user, filters: dict | None = None):
             qs = qs.filter(created_at__date__gte=from_date)
         if to_date := filters.get("to_date"):
             qs = qs.filter(created_at__date__lte=to_date)
-
     return qs.order_by("-created_at")
 
 
@@ -234,31 +300,22 @@ def list_reservations(user, filters: dict | None = None):
 
 def cancel_reservation(reservation_id, user) -> Reservation:
     """
-    Cancel a reservation:
-      1. Fetch and validate the reservation
-      2. Call Duffel cancellation API (two-step: quote → confirm)
-      3. Update local status to CANCELLED inside transaction.atomic()
+    Cancel via Amadeus DELETE /booking/flight-orders/{id} then mark local DB.
     """
     reservation = get_reservation(reservation_id, user)
 
     if reservation.status == Reservation.Status.CANCELLED:
         raise CancellationNotAllowedException("Reservation is already cancelled.")
     if reservation.status == Reservation.Status.FAILED:
-        raise CancellationNotAllowedException(
-            "Failed reservations cannot be cancelled."
-        )
+        raise CancellationNotAllowedException("Failed reservations cannot be cancelled.")
 
-    # ── Sync cancellation with Duffel ────────────────────────────────
     if reservation.external_order_id:
-        cancellation = duffel.cancel_order(reservation.external_order_id)
+        result = amadeus.cancel_order(reservation.external_order_id)
         logger.info(
-            "Duffel cancellation confirmed: order_id=%s refund=%s %s",
-            reservation.external_order_id,
-            cancellation.get("refund_amount"),
-            cancellation.get("refund_currency"),
+            "Amadeus cancellation confirmed: order_id=%s result=%s",
+            reservation.external_order_id, result,
         )
 
-    # ── Update local DB ───────────────────────────────────────────────
     with transaction.atomic():
         reservation.status = Reservation.Status.CANCELLED
         reservation.save(update_fields=["status", "updated_at"])
@@ -271,68 +328,67 @@ def cancel_reservation(reservation_id, user) -> Reservation:
 #  PRIVATE HELPERS
 # ══════════════════════════════════════════════════════════════════════
 
-def _build_duffel_passengers(passengers_data: list[dict]) -> list[dict]:
-    """Map validated serializer data → Duffel passenger schema."""
-    # Recuperer le telephone du premier adulte comme fallback
-    adult_phone = next(
-        (p.get("phone_number", "") for p in passengers_data
-         if p.get("type", "adult") == "adult" and p.get("phone_number")),
-        ""
-    )
-
-    result = []
-    for p in passengers_data:
-        pax_type = p.get("type", "adult")
-        passenger: dict = {
-            "type":        pax_type,
-            "title":       p["title"],
-            "given_name":  p["given_name"],
-            "family_name": p["family_name"],
-            "born_on":     str(p["born_on"]),
-            "email":       p["email"],
-            "gender":      p.get("gender", "m"),
-        }
-        if p.get("id"):
-            passenger["id"] = p["id"]
-        # Telephone : utiliser celui du passager ou fallback adulte
-        phone = p.get("phone_number", "") or adult_phone
-        if phone:
-            passenger["phone_number"] = phone
-        if p.get("identity_documents"):
-            passenger["identity_documents"] = [
-                {
-                    "type": doc["type"],
-                    "unique_identifier": doc["unique_identifier"],
-                    "expires_on": str(doc["expires_on"]),
-                    "issuing_country_code": doc["issuing_country_code"],
-                }
-                for doc in p["identity_documents"]
-            ]
-        result.append(passenger)
-    return result
+def _extract_booking_ref(amadeus_order: dict) -> str:
+    """Extract PNR/booking reference from Amadeus order."""
+    records = amadeus_order.get("associatedRecords", [])
+    return records[0].get("reference", "") if records else ""
 
 
-def _build_duffel_payment(payment_data: dict, duffel_offer_amount: str | None = None) -> dict:
-    """Map validated payment data → Duffel payment schema.
-    
-    Args:
-        payment_data: Payment data from request (may have been reduced by promo code)
-        duffel_offer_amount: Actual offer amount from Duffel API (use this for payment to Duffel)
+def _build_amadeus_travelers(passengers_data: list[dict]) -> list[dict]:
     """
-    # Always use the Duffel offer amount for the payment to Duffel
-    # (not the potentially discounted amount from the UI)
-    amount = duffel_offer_amount or payment_data["amount"]
-    amount = Decimal(str(amount)).quantize(Decimal("0.01"))
+    Convert validated passenger dicts (from PassengerInputSerializer) to
+    Amadeus traveler format. Travelers are numbered 1…N sequentially —
+    Amadeus assigns travelerPricings in the same order as the search passengers.
+    """
+    travelers = []
+    for i, p in enumerate(passengers_data, start=1):
+        gender = "MALE" if p.get("gender", "m").lower() in ("m", "male") else "FEMALE"
 
-    return {
-        "type": payment_data["type"],
-        "amount": str(amount),
-        "currency": payment_data["currency"],
-    }
+        traveler: dict = {
+            "id":          str(i),
+            "dateOfBirth": str(p.get("born_on", "")),
+            "name": {
+                "firstName": p.get("given_name", "").upper(),
+                "lastName":  p.get("family_name", "").upper(),
+            },
+            "gender": gender,
+            "contact": {
+                "emailAddress": p.get("email", ""),
+                "phones": [],
+            },
+        }
+
+        phone        = p.get("phone_number", "")
+        country_code = "213"                         # default Algeria
+        if phone:
+            # strip country prefix if present in the number
+            phone = phone.lstrip("+").lstrip("0")
+            traveler["contact"]["phones"].append({
+                "deviceType":        "MOBILE",
+                "countryCallingCode": country_code,
+                "number":            phone,
+            })
+
+        # Passport
+        docs      = p.get("identity_documents", [])
+        first_doc = docs[0] if docs else {}
+        passport  = first_doc.get("unique_identifier", "")
+        if passport:
+            traveler["documents"] = [{
+                "documentType":    "PASSPORT",
+                "number":          passport,
+                "expiryDate":      str(first_doc.get("expires_on", "")),
+                "issuanceCountry": first_doc.get("issuing_country_code", "DZ"),
+                "nationality":     first_doc.get("issuing_country_code", "DZ"),
+                "holder":          True,
+            }]
+
+        travelers.append(traveler)
+
+    return travelers
 
 
 def _normalize_passenger_type(pax_type: str) -> str:
-    """Normalise le type passager pour la base de donnees (max 10 chars)."""
     if "infant" in pax_type:
         return Passenger.Type.INFANT
     if "child" in pax_type:
@@ -340,63 +396,22 @@ def _normalize_passenger_type(pax_type: str) -> str:
     return Passenger.Type.ADULT
 
 
-def _build_passenger_obj_pending(reservation: Reservation, p: dict) -> Passenger:
-    """Build a Passenger object from serializer data without a Duffel order."""
-    docs = p.get("identity_documents", [])
+def _build_passenger_obj(reservation: Reservation, p: dict) -> Passenger:
+    """Build Passenger from validated serializer data (works for pending and confirmed)."""
+    docs      = p.get("identity_documents", [])
     first_doc = docs[0] if docs else {}
+
     return Passenger(
         reservation=reservation,
         type=_normalize_passenger_type(p.get("type", Passenger.Type.ADULT)),
-        title=p["title"],
-        first_name=p["given_name"],
-        last_name=p["family_name"],
-        born_on=p["born_on"],
-        email=p["email"],
+        title=p.get("title", "mr"),
+        first_name=p.get("given_name", ""),
+        last_name=p.get("family_name", ""),
+        born_on=p.get("born_on"),
+        email=p.get("email", ""),
         phone=p.get("phone_number", ""),
         id_document_type=first_doc.get("type", ""),
         id_document_number=first_doc.get("unique_identifier", ""),
         id_document_expiry=first_doc.get("expires_on"),
         nationality=first_doc.get("issuing_country_code", ""),
-    )
-
-
-def _build_passenger_obj(
-    reservation: Reservation,
-    p: dict,
-    duffel_order: dict,
-) -> Passenger:
-    """
-    Construct a Passenger model instance from serializer data.
-    Attempts to extract per-passenger price breakdown from the Duffel order.
-    """
-    docs = p.get("identity_documents", [])
-    first_doc = docs[0] if docs else {}
-
-    # Try to find matching passenger pricing in the Duffel order
-    base_amount = None
-    tax_amount = None
-    for duffel_pax in duffel_order.get("passengers", []):
-        if (
-            duffel_pax.get("given_name", "").lower() == p["given_name"].lower()
-            and duffel_pax.get("family_name", "").lower() == p["family_name"].lower()
-        ):
-            base_amount = duffel_pax.get("base_amount")
-            tax_amount = duffel_pax.get("tax_amount")
-            break
-
-    return Passenger(
-        reservation=reservation,
-        type=p.get("type", Passenger.Type.ADULT),
-        title=p["title"],
-        first_name=p["given_name"],
-        last_name=p["family_name"],
-        born_on=p["born_on"],
-        email=p["email"],
-        phone=p.get("phone_number", ""),
-        id_document_type=first_doc.get("type", ""),
-        id_document_number=first_doc.get("unique_identifier", ""),
-        id_document_expiry=first_doc.get("expires_on"),
-        nationality=first_doc.get("issuing_country_code", ""),
-        base_amount=Decimal(str(base_amount)) if base_amount else None,
-        tax_amount=Decimal(str(tax_amount)) if tax_amount else None,
     )
