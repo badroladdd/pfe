@@ -3,7 +3,7 @@ from pathlib import Path
 from datetime import timedelta
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=True)  # .env values override any existing OS env vars
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -31,6 +31,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -44,6 +45,14 @@ ROOT_URLCONF = "config.urls"
 WSGI_APPLICATION = "config.wsgi.application"
 AUTH_USER_MODEL = "users.User"
 
+_db_options = {
+    "charset": "utf8mb4",
+    "init_command": "SET sql_mode='STRICT_TRANS_TABLES'",
+}
+if not DEBUG:
+    # Aiven MySQL requires SSL
+    _db_options["ssl"] = {"ssl_disabled": False}
+
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.mysql",
@@ -52,10 +61,7 @@ DATABASES = {
         "PASSWORD": os.environ.get("DB_PASSWORD", ""),
         "HOST": os.environ.get("DB_HOST", "localhost"),
         "PORT": os.environ.get("DB_PORT", "3306"),
-        "OPTIONS": {
-            "charset": "utf8mb4",
-            "init_command": "SET sql_mode='STRICT_TRANS_TABLES'",
-        },
+        "OPTIONS": _db_options,
     }
 }
 
@@ -105,8 +111,13 @@ DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "noreply@deliveryservi
 # Frontend URL for email verification links
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000")
 
-# Duffel API
-DUFFEL_API_KEY = os.environ.get("DUFFEL_API_KEY", "")
+# Amadeus API (flights search + booking)
+AMADEUS_CLIENT_ID       = os.environ.get("AMADEUS_CLIENT_ID", "")
+AMADEUS_CLIENT_SECRET   = os.environ.get("AMADEUS_CLIENT_SECRET", "")
+AMADEUS_TIMEOUT_SECONDS = int(os.environ.get("AMADEUS_TIMEOUT_SECONDS", "30"))
+
+# Duffel API (airport search only)
+DUFFEL_API_KEY         = os.environ.get("DUFFEL_API_KEY", "")
 DUFFEL_TIMEOUT_SECONDS = int(os.environ.get("DUFFEL_TIMEOUT_SECONDS", "30"))
 
 # Cache — use Redis in production, local memory in development
@@ -131,6 +142,8 @@ CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 
 STATIC_URL = "/static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
+STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
 TEMPLATES = [
     {
