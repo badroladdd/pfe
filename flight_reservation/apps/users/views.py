@@ -1,9 +1,12 @@
+from django.core.mail import send_mail
+from django.conf import settings
+
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.users.models import User
+from apps.users.models import PasswordResetToken, User
 from apps.users.serializers import RegisterSerializer, UserSerializer
 
 
@@ -136,3 +139,70 @@ class ChangePasswordView(APIView):
         request.user.set_password(new_password)
         request.user.save()
         return Response({"detail": "Password changed successfully."})
+
+
+class ForgotPasswordView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        email = request.data.get("email", "").strip().lower()
+        if not email:
+            return Response({"detail": "Email is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Always return success to avoid user enumeration
+        if User.objects.filter(email=email).exists():
+            token = PasswordResetToken.create_for(email)
+            send_mail(
+                subject="Réinitialisation de votre mot de passe FlyApp",
+                message=(
+                    f"Votre code de réinitialisation est : {token.code}\n\n"
+                    f"Ce code est valable 15 minutes.\n"
+                    f"Si vous n'avez pas demandé cette réinitialisation, ignorez cet email."
+                ),
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[email],
+                fail_silently=True,
+            )
+
+        return Response({"detail": "Si cet email existe, un code a été envoyé."})
+
+
+class ResetPasswordView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        email = request.data.get("email", "").strip().lower()
+        code = request.data.get("code", "").strip()
+        new_password = request.data.get("new_password", "")
+
+        if not email or not code or not new_password:
+            return Response(
+                {"detail": "email, code and new_password are required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if len(new_password) < 8:
+            return Response(
+                {"detail": "Le mot de passe doit contenir au moins 8 caractères."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        token = PasswordResetToken.objects.filter(email=email, code=code).order_by("-created_at").first()
+
+        if not token or not token.is_valid():
+            return Response(
+                {"detail": "Code invalide ou expiré."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            user = User.objects.get(email=email)
+        except User.DoesNotExist:
+            return Response({"detail": "Utilisateur introuvable."}, status=status.HTTP_404_NOT_FOUND)
+
+        user.set_password(new_password)
+        user.save()
+        token.used = True
+        token.save(update_fields=["used"])
+
+        return Response({"detail": "Mot de passe réinitialisé avec succès."})

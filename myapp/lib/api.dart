@@ -13,12 +13,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// Pour émulateur Android : utiliser 10.0.2.2
 const String _kBaseUrl = String.fromEnvironment(
   'API_BASE_URL',
-  defaultValue: 'http://192.168.100.18:8000/api/v1',
+  defaultValue: 'https://amadeus-project.onrender.com/api/v1',
 );
 
 const String _kAccessTokenKey  = 'access_token';
 const String _kRefreshTokenKey = 'refresh_token';
-const Duration _kTimeout        = Duration(seconds: 30);
+const Duration _kTimeout        = Duration(seconds: 60);
 
 // ─── Exception types ──────────────────────────────────────────────────────────
 
@@ -662,6 +662,28 @@ class ApiClient {
     await _post(
       '/auth/resend-verification/',
       body: {'email': email},
+      requiresAuth: false,
+    );
+  }
+
+  /// Send a 6-digit OTP to [email] for password reset.
+  Future<void> forgotPassword(String email) async {
+    await _post(
+      '/auth/forgot-password/',
+      body: {'email': email},
+      requiresAuth: false,
+    );
+  }
+
+  /// Reset password using the OTP received by email.
+  Future<void> resetPassword({
+    required String email,
+    required String code,
+    required String newPassword,
+  }) async {
+    await _post(
+      '/auth/reset-password/',
+      body: {'email': email, 'code': code, 'new_password': newPassword},
       requiresAuth: false,
     );
   }

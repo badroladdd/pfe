@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.urls import path, include
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
-from apps.users.views import AdminCreateUserView, AdminUserDetailView, AdminUsersView, ChangePasswordView, MeView, RegisterView
+from apps.users.views import AdminCreateUserView, AdminUserDetailView, AdminUsersView, ChangePasswordView, ForgotPasswordView, MeView, RegisterView, ResetPasswordView
 from apps.reservations.views import (
     AdminPromoCodeDetailView, AdminPromoCodesView,
     AdminReservationsView, AdminStatsView,
@@ -17,7 +17,9 @@ urlpatterns = [
     path("api/v1/auth/refresh/",         TokenRefreshView.as_view(),      name="token_refresh"),
     path("api/v1/auth/register/",        RegisterView.as_view(),          name="user_register"),
     path("api/v1/auth/me/",              MeView.as_view(),                name="user_me"),
-    path("api/v1/auth/change-password/", ChangePasswordView.as_view(),    name="change_password"),
+    path("api/v1/auth/change-password/",  ChangePasswordView.as_view(),   name="change_password"),
+    path("api/v1/auth/forgot-password/",  ForgotPasswordView.as_view(),   name="forgot_password"),
+    path("api/v1/auth/reset-password/",   ResetPasswordView.as_view(),    name="reset_password"),
 
     # Admin API
     path("api/v1/admin/stats/",              AdminStatsView.as_view(),        name="admin_stats"),

@@ -3,10 +3,12 @@ import 'package:myapp/api.dart';
 import 'package:myapp/models/flight.dart';
 import 'package:myapp/screens/flights/flights_result_screen.dart';
 import 'package:myapp/widgets/airport_search_field.dart';
+import 'package:myapp/widgets/loading_overlay.dart';
+
+const _kBlue = Color(0xFF2B5FF8);
 
 class HomeScreen extends StatefulWidget {
   final VoidCallback onBookingCreated;
-
   const HomeScreen({super.key, required this.onBookingCreated});
 
   @override
@@ -14,52 +16,90 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  int _flightMode = 0;
-  List<Map<String, String>> routes = [];
-  String _returnDate = '';
+  bool _isSearching = false;
 
-  int _adults   = 1;
-  int _children = 0;
+  // 0=Aller Simple, 1=Aller-Retour, 2=Multi-dest
+  int _tripType = 0;
+
+  String _fromCode  = 'ALG';
+  String _fromLabel = 'Origine';
+  bool   _fromSelected = false;
+  String _toCode    = 'CDG';
+  String _toLabel   = 'Destination';
+  bool   _toSelected   = false;
+
+  DateTime? _departureDate;
+  DateTime? _returnDate;
+
+  int       _adults       = 1;
+  int       _children     = 0;
   List<int> _childrenAges = [];
-  String flightClass = 'Economique';
+  String    _flightClass  = 'Economique';
 
-  String get _passengersLabel {
-    final parts = <String>[];
-    if (_adults   > 0) parts.add('$_adults adulte${_adults > 1 ? 's' : ''}');
-    if (_children > 0) parts.add('$_children enfant${_children > 1 ? 's' : ''}');
-    return parts.isEmpty ? '1 adulte' : parts.join(', ');
-  }
-  bool isDirect = false;
-  bool hasBaggage = false;
+  bool isDirect     = false;
+  bool hasBaggage   = false;
   bool isRefundable = false;
 
-  final ApiClient api = ApiClient();
+  final ApiClient _api = ApiClient();
   List<Map<String, dynamic>> _recommendations = [];
+  String _firstName = '';
 
   @override
   void initState() {
     super.initState();
-    routes = [{'from': 'ALG', 'to': 'TUN', 'date': _formatDate(DateTime.now())}];
-    _loadRecommendations('ALG');
+    _departureDate = DateTime.now().add(const Duration(days: 7));
+    _returnDate    = DateTime.now().add(const Duration(days: 14));
+    _loadUserProfile();
+    _loadRecommendations();
   }
 
-  Future<void> _loadRecommendations(String origin) async {
-    if (origin.length != 3) return;
-    final dest = routes.isNotEmpty ? (routes[0]['to'] ?? '') : '';
-    final results = await api.getRecommendations(origin, destination: dest);
+  Future<void> _loadUserProfile() async {
+    try {
+      final loggedIn = await _api.isLoggedIn;
+      if (!loggedIn || !mounted) return;
+      final profile = await _api.getProfile();
+      if (mounted) {
+        setState(() {
+          _firstName = (profile['first_name'] ?? '').toString().trim();
+        });
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _loadRecommendations() async {
+    if (_fromCode.length != 3) return;
+    final results = await _api.getRecommendations(
+      _fromCode,
+      destination: _toCode.length == 3 ? _toCode : '',
+    );
     if (mounted) setState(() => _recommendations = results);
   }
 
-  String _formatDate(DateTime date) {
-    return '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}';
+
+  String _formatDisplayDate(DateTime? date) {
+    if (date == null) return 'Date de départ';
+    const months = [
+      'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin',
+      'Juil', 'Août', 'Sep', 'Oct', 'Nov', 'Déc'
+    ];
+    const days = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
+    return '${days[date.weekday - 1]}, ${months[date.month - 1]} ${date.day} ${date.year}';
   }
 
-  bool _isIataCode(String value) {
-    return RegExp(r'^[A-Za-z]{3}$').hasMatch(value.trim());
+  String _formatReturnDate(DateTime? date) {
+    if (date == null) return 'Date de retour';
+    return _formatDisplayDate(date);
   }
 
-  String _toTravelClass(String value) {
-    switch (value) {
+  String _formatApiDate(DateTime date) =>
+      '${date.year}-${date.month.toString().padLeft(2, '0')}-'
+      '${date.day.toString().padLeft(2, '0')}';
+
+  bool _isIataCode(String v) =>
+      RegExp(r'^[A-Za-z]{3}$').hasMatch(v.trim());
+
+  String _toTravelClass(String v) {
+    switch (v) {
       case 'Affaires': return 'BUSINESS';
       case 'Première': return 'FIRST';
       default:         return 'ECONOMY';
@@ -67,16 +107,10 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   bool _offerHasBaggage(Map<String, dynamic> offer) {
-    final slices = (offer['slices'] as List?)?.cast<Map<String, dynamic>>() ?? [];
-    for (final slice in slices) {
-      final segments = (slice['segments'] as List?)?.cast<Map<String, dynamic>>() ?? [];
-      for (final seg in segments) {
-        final paxList = (seg['passengers'] as List?)?.cast<Map<String, dynamic>>() ?? [];
-        for (final pax in paxList) {
-          final baggages = (pax['baggages'] as List?)?.cast<Map<String, dynamic>>() ?? [];
-          if (baggages.isNotEmpty) {
-            return true;
-          }
+    for (final slice in (offer['slices'] as List?)?.cast<Map<String, dynamic>>() ?? []) {
+      for (final seg in (slice['segments'] as List?)?.cast<Map<String, dynamic>>() ?? []) {
+        for (final pax in (seg['passengers'] as List?)?.cast<Map<String, dynamic>>() ?? []) {
+          if (((pax['baggages'] as List?) ?? []).isNotEmpty) return true;
         }
       }
     }
@@ -84,379 +118,145 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   bool _offerIsRefundable(Map<String, dynamic> offer) {
-    final conditions = (offer['conditions'] as Map<String, dynamic>?) ?? {};
-    if (conditions['refundable'] == true) return true;
-
-    final slices = (offer['slices'] as List?)?.cast<Map<String, dynamic>>() ?? [];
-    for (final slice in slices) {
-      final segments = (slice['segments'] as List?)?.cast<Map<String, dynamic>>() ?? [];
-      for (final seg in segments) {
-        final segConditions = (seg['conditions'] as Map<String, dynamic>?) ?? {};
-        if (segConditions['refundable'] == true) {
-          return true;
-        }
+    if ((offer['conditions'] as Map?)?['refundable'] == true) return true;
+    for (final slice in (offer['slices'] as List?)?.cast<Map<String, dynamic>>() ?? []) {
+      for (final seg in (slice['segments'] as List?)?.cast<Map<String, dynamic>>() ?? []) {
+        if ((seg['conditions'] as Map?)?['refundable'] == true) return true;
       }
     }
     return false;
   }
 
   Future<void> _searchFlights() async {
-    final origin      = routes[0]['from']?.trim().toUpperCase() ?? '';
-    final destination = routes[0]['to']?.trim().toUpperCase() ?? '';
-    final rawDate     = routes[0]['date']?.trim() ?? '';
-
-    if (!_isIataCode(origin) || !_isIataCode(destination)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Veuillez saisir des codes IATA valides à 3 lettres.')),
-      );
+    if (!_isIataCode(_fromCode) || !_isIataCode(_toCode)) {
+      _snack('Veuillez sélectionner des aéroports valides.');
       return;
     }
-
-    if (origin == destination) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('L\'aéroport de départ et d\'arrivée doit être différent.')),
-      );
+    if (_fromCode.toUpperCase() == _toCode.toUpperCase()) {
+      _snack('L\'aéroport de départ et d\'arrivée doit être différent.');
       return;
     }
-
-    if (rawDate.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Veuillez sélectionner une date de départ.')),
-      );
+    if (_departureDate == null) {
+      _snack('Veuillez sélectionner une date de départ.');
       return;
     }
-
-    final dateParts = rawDate.split('/');
-    if (dateParts.length != 3) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Date invalide. Utilisez le format JJ/MM/AAAA.')),
-      );
+    if (_tripType == 1 && _returnDate == null) {
+      _snack('Veuillez sélectionner une date de retour.');
       return;
     }
-
-    final formattedDate =
-        '${dateParts[2]}-${dateParts[1].padLeft(2, '0')}-${dateParts[0].padLeft(2, '0')}';
-
-    String? formattedReturnDate;
-    if (_flightMode == 0) {
-      if (_returnDate.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Veuillez sélectionner une date de retour.')),
-        );
-        return;
-      }
-      final rParts = _returnDate.split('/');
-      if (rParts.length == 3) {
-        formattedReturnDate =
-            '${rParts[2]}-${rParts[1].padLeft(2, '0')}-${rParts[0].padLeft(2, '0')}';
-      }
-    }
-
+    setState(() => _isSearching = true);
     try {
-      final results = await api.searchFlights(
-        origin: origin,
-        destination: destination,
-        departureDate: formattedDate,
-        adults: _adults,
-        children: _children,
-        infants: 0,
-        childrenAges: _childrenAges,
-        travelClass: _toTravelClass(flightClass),
-        nonStop: isDirect,
-        hasBaggage: hasBaggage,
-        refundable: isRefundable,
-        returnDate: formattedReturnDate,
+      final results = await _api.searchFlights(
+        origin:        _fromCode.toUpperCase(),
+        destination:   _toCode.toUpperCase(),
+        departureDate: _formatApiDate(_departureDate!),
+        adults:        _adults,
+        children:      _children,
+        infants:       0,
+        childrenAges:  _childrenAges,
+        travelClass:   _toTravelClass(_flightClass),
+        nonStop:       isDirect,
+        hasBaggage:    hasBaggage,
+        refundable:    isRefundable,
+        returnDate:    _tripType == 1 ? _formatApiDate(_returnDate!) : null,
       );
-
-      final validOffers = results.where((offer) => offer['_summary'] != null).toList();
-
-      final foundFlights = validOffers.map((offer) {
-        final summary = offer['_summary'] as Map<String, dynamic>;
+      final validOffers = results.where((o) => o['_summary'] != null).toList();
+      final flights = validOffers.map((offer) {
+        final s = offer['_summary'] as Map<String, dynamic>;
         return Flight(
-          from: summary['origin']?.toString() ?? '',
-          to: summary['destination']?.toString() ?? '',
-          date: (summary['departure_at']?.toString() ?? '').split('T')[0],
-          passengers: _adults.toString(),
-          flightClass: flightClass,
-          isDirect: (summary['stops'] ?? 1) == 0,
-          hasBaggage: _offerHasBaggage(offer),
+          from:         s['origin']?.toString() ?? '',
+          to:           s['destination']?.toString() ?? '',
+          date:         (s['departure_at']?.toString() ?? '').split('T')[0],
+          passengers:   _adults.toString(),
+          flightClass:  _flightClass,
+          isDirect:     (s['stops'] ?? 1) == 0,
+          hasBaggage:   _offerHasBaggage(offer),
           isRefundable: _offerIsRefundable(offer),
-          price: double.tryParse(summary['total_price']?.toString() ?? '0') ?? 0,
-          departureAt: summary['departure_at']?.toString() ?? '',
-          arrivalAt: summary['arrival_at']?.toString() ?? '',
+          price:        double.tryParse(s['total_price']?.toString() ?? '0') ?? 0,
+          departureAt:  s['departure_at']?.toString() ?? '',
+          arrivalAt:    s['arrival_at']?.toString() ?? '',
         );
       }).toList();
-
-      if (foundFlights.isEmpty) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Aucun vol trouvé pour ces critères.')),
-        );
-        return;
-      }
-
+      if (flights.isEmpty) { _snack('Aucun vol trouvé pour ces critères.'); return; }
       if (!mounted) return;
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => FlightsResultScreen(
-            flights: foundFlights,
-            rawOffers: validOffers,
-            passengersCount: _adults + _children,
-            onBookingCreated: widget.onBookingCreated,
-          ),
+      Navigator.push(context, MaterialPageRoute(
+        builder: (_) => FlightsResultScreen(
+          flights:                flights,
+          rawOffers:              validOffers,
+          passengersCount:        _adults + _children,
+          onBookingCreated:       widget.onBookingCreated,
+          initialFrom:            _fromCode,
+          initialTo:              _toCode,
+          initialDepartureDate:   _departureDate != null
+              ? _departureDate!.toIso8601String().split('T')[0]
+              : '',
+          initialReturnDate:      _tripType == 1 && _returnDate != null
+              ? _returnDate!.toIso8601String().split('T')[0]
+              : null,
+          initialFlightClass:     _flightClass,
+          initialPassengers:      _adults + _children,
         ),
-      );
+      ));
     } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur de recherche: $e')),
-      );
+      _snack('Erreur de recherche: $e');
+    } finally {
+      if (mounted) setState(() => _isSearching = false);
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        // World map background
-        Positioned.fill(
-          child: Image.asset(
-            'assets/images/download.jpg',
-            fit: BoxFit.cover,
-            opacity: const AlwaysStoppedAnimation(0.15),
-          ),
-        ),
-        SingleChildScrollView(
-      padding: const EdgeInsets.all(16.0),
-      child: Column(
-        children: [
-          _buildHeader(),
-          const SizedBox(height: 20),
-          _buildTabSelector(),
-          const SizedBox(height: 20),
-          _buildSearchCard(),
-          const SizedBox(height: 15),
-          _buildOptionsRow(),
-          const SizedBox(height: 25),
-          _buildSearchButton(),
-          if (_recommendations.isNotEmpty) ...[
-            const SizedBox(height: 24),
-            _buildRecommendations(),
-          ],
-        ],
-      ),
-        ),
-      ],
-    );
+  void _snack(String msg) =>
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+
+  void _swapAirports() {
+    if (!_fromSelected && !_toSelected) return;
+    setState(() {
+      final tc = _fromCode; final tl = _fromLabel; final ts = _fromSelected;
+      _fromCode = _toCode; _fromLabel = _toLabel; _fromSelected = _toSelected;
+      _toCode = tc; _toLabel = tl; _toSelected = ts;
+    });
+    _loadRecommendations();
   }
 
-  Widget _buildRecommendations() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            const Icon(Icons.airlines, color: Colors.blue, size: 18),
-            const SizedBox(width: 8),
-            const Text('Compagnies recommandées',
-                style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-          ],
-        ),
-        const SizedBox(height: 10),
-        ..._recommendations.map((r) {
-          final compagnie  = r['compagnie'] as String? ?? '';
-          final confidence = (((r['confidence'] as num?) ?? 0) * 100).toStringAsFixed(0);
-          return Card(
-            margin: const EdgeInsets.only(bottom: 8),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            child: ListTile(
-              leading: Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.blue.shade50,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Icon(Icons.flight, color: Colors.blue),
-              ),
-              title: Text(
-                compagnie,
-                style: const TextStyle(fontWeight: FontWeight.w600),
-                overflow: TextOverflow.ellipsis,
-                maxLines: 1,
-              ),
-              subtitle: Text(
-                '$confidence% des voyageurs choisissent cette compagnie',
-                overflow: TextOverflow.ellipsis,
-                maxLines: 2,
-              ),
-              trailing: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: Colors.blue.shade50,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  '$confidence%',
-                  style: TextStyle(
-                    color: Colors.blue.shade700,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 13,
-                  ),
-                ),
-              ),
-            ),
-          );
-        }),
-      ],
-    );
+  Future<void> _pickAirport({required bool isFrom}) async {
+    final result = await showAirportSearch(
+        context, current: isFrom ? _fromCode : _toCode);
+    if (result == null || !mounted) return;
+    final code  = result['iata'] ?? '';
+    final city  = result['city'] ?? '';
+    final label = city.isNotEmpty ? '$city ($code)' : code;
+    setState(() {
+      if (isFrom) { _fromCode = code; _fromLabel = label; _fromSelected = true; }
+      else        { _toCode   = code; _toLabel   = label; _toSelected   = true; }
+    });
+    _loadRecommendations();
   }
 
-  Widget _buildHeader() {
-    return const Row(
-      children: [
-        Icon(Icons.airplanemode_active, color: Colors.blue, size: 35),
-        SizedBox(width: 12),
-        Text('Recherche de vols',
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-      ],
+  Future<void> _pickDate({required bool isDeparture}) async {
+    final initial = isDeparture
+        ? (_departureDate ?? DateTime.now())
+        : (_returnDate ?? (_departureDate?.add(const Duration(days: 1)) ?? DateTime.now()));
+    final first = isDeparture ? DateTime.now() : (_departureDate ?? DateTime.now());
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial.isBefore(first) ? first : initial,
+      firstDate:   first,
+      lastDate:    DateTime.now().add(const Duration(days: 365)),
     );
-  }
-
-  Widget _buildTabSelector() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceAround,
-      children: ["Aller-Retour", "Aller simple"].asMap().entries.map((entry) {
-        final isActive = _flightMode == entry.key;
-        return GestureDetector(
-          onTap: () => setState(() {
-            _flightMode = entry.key;
-            routes = [
-              {'from': 'ALG', 'to': 'TUN', 'date': _formatDate(DateTime.now())}
-            ];
-          }),
-          child: Column(
-            children: [
-              Text(entry.value,
-                  style: TextStyle(
-                      color: isActive ? Colors.blue : Colors.grey,
-                      fontWeight: FontWeight.bold)),
-              if (isActive)
-                Container(
-                    margin: const EdgeInsets.only(top: 5),
-                    height: 3,
-                    width: 40,
-                    color: Colors.blue),
-            ],
-          ),
-        );
-      }).toList(),
-    );
-  }
-
-  Widget _buildSearchCard() {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10)],
-      ),
-      child: Column(
-        children: [
-          ...routes.asMap().entries.map((e) => _buildRouteItem(e.key)),
-          if (_flightMode == 0) ...[
-            const Divider(indent: 50, height: 1),
-            _buildListTile(
-              Icons.calendar_today,
-              "Date de retour",
-              _returnDate.isEmpty ? 'Sélectionnez une date' : _returnDate,
-              (value) => setState(() => _returnDate = value),
-              isDate: true,
-            ),
-          ],
-          const Divider(height: 1),
-          _buildDualField(),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildRouteItem(int index) {
-    return Column(
-      children: [
-        if (index > 0) const Divider(thickness: 1),
-        _buildListTile(Icons.flight_takeoff, "D'où partez-vous ?",
-            routes[index]['from'] ?? 'ALG', (value) {
-          setState(() => routes[index]['from'] = value);
-          _loadRecommendations(value);
-        }),
-        const Divider(indent: 50, height: 1),
-        _buildListTile(Icons.flight_land, "Où allez-vous ?",
-            routes[index]['to'] ?? 'TUN', (value) {
-          setState(() => routes[index]['to'] = value);
-          // Recharger recommandations avec nouvelle destination
-          _loadRecommendations(routes[index]['from'] ?? '');
-        }),
-        const Divider(indent: 50, height: 1),
-        _buildListTile(Icons.calendar_today, "Date",
-            routes[index]['date'] ?? 'Sélectionnez une date', (value) {
-          setState(() => routes[index]['date'] = value);
-        }, isDate: true),
-      ],
-    );
-  }
-
-  Widget _buildListTile(IconData icon, String label, String value,
-      Function(String) onChanged, {bool isDate = false}) {
-    return ListTile(
-      leading: Icon(icon, color: Colors.grey[400]),
-      title: Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)),
-      subtitle: Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-      onTap: () async {
-        if (isDate) {
-          final pickedDate = await showDatePicker(
-            context: context,
-            initialDate: DateTime.now(),
-            firstDate: DateTime.now(),
-            lastDate: DateTime.now().add(const Duration(days: 365)),
-          );
-          if (pickedDate != null) {
-            onChanged("${pickedDate.day}/${pickedDate.month}/${pickedDate.year}");
-          }
-        } else {
-          final iata = await showAirportSearch(context, current: value);
-          if (iata != null) onChanged(iata);
+    if (picked == null || !mounted) return;
+    setState(() {
+      if (isDeparture) {
+        _departureDate = picked;
+        if (_returnDate != null && _returnDate!.isBefore(picked)) {
+          _returnDate = picked.add(const Duration(days: 1));
         }
-      },
-    );
-  }
-
-  Widget _buildDualField() {
-    return Row(
-      children: [
-        Expanded(
-          child: ListTile(
-            leading: Icon(Icons.person_outline, color: Colors.grey[400]),
-            title: const Text('Passagers', style: TextStyle(fontSize: 11, color: Colors.grey)),
-            subtitle: Text(_passengersLabel, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-            onTap: _showPassengerDialog,
-          ),
-        ),
-        Container(width: 1, height: 40, color: Colors.grey[200]),
-        Expanded(
-          child: ListTile(
-            leading: Icon(Icons.confirmation_number_outlined, color: Colors.grey[400]),
-            title: const Text('Classe', style: TextStyle(fontSize: 11, color: Colors.grey)),
-            subtitle: Text(flightClass, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-            onTap: _showClassDialog,
-          ),
-        ),
-      ],
-    );
+      } else {
+        _returnDate = picked;
+      }
+    });
   }
 
   void _showPassengerDialog() {
-    int adults   = _adults;
+    int adults = _adults;
     int children = _children;
     List<int> childrenAges = List.from(_childrenAges);
 
@@ -467,7 +267,6 @@ class _HomeScreenState extends State<HomeScreen> {
           void changeChildren(int delta) {
             final next = (children + delta).clamp(0, 8);
             if (next > children) {
-              // added a child — ask age
               showDialog<int>(
                 context: ctx,
                 builder: (_) {
@@ -476,51 +275,28 @@ class _HomeScreenState extends State<HomeScreen> {
                     builder: (ageCtx, setAge) => AlertDialog(
                       title: const Text('Âge de l\'enfant'),
                       content: SizedBox(
-                        height: 160,
-                        child: Column(
-                          children: [
-                            const Text('Âge au moment du voyage',
-                                style: TextStyle(color: Colors.grey, fontSize: 13)),
-                            const SizedBox(height: 12),
-                            DropdownButton<int>(
-                              value: selectedAge,
-                              isExpanded: true,
-                              items: List.generate(10, (i) => i + 2)
-                                  .map((age) => DropdownMenuItem(
-                                        value: age,
-                                        child: Text('$age ans'),
-                                      ))
-                                  .toList(),
-                              onChanged: (v) => setAge(() => selectedAge = v!),
-                            ),
-                          ],
+                        height: 120,
+                        child: DropdownButton<int>(
+                          value: selectedAge,
+                          isExpanded: true,
+                          items: List.generate(10, (i) => i + 2)
+                              .map((age) => DropdownMenuItem(value: age, child: Text('$age ans')))
+                              .toList(),
+                          onChanged: (v) => setAge(() => selectedAge = v!),
                         ),
                       ),
                       actions: [
-                        TextButton(
-                            onPressed: () => Navigator.pop(ageCtx),
-                            child: const Text('Annuler')),
-                        ElevatedButton(
-                          onPressed: () => Navigator.pop(ageCtx, selectedAge),
-                          child: const Text('Confirmer'),
-                        ),
+                        TextButton(onPressed: () => Navigator.pop(ageCtx), child: const Text('Annuler')),
+                        ElevatedButton(onPressed: () => Navigator.pop(ageCtx, selectedAge), child: const Text('Confirmer')),
                       ],
                     ),
                   );
                 },
               ).then((age) {
-                if (age != null) {
-                  setDlg(() {
-                    children = next;
-                    childrenAges.add(age);
-                  });
-                }
+                if (age != null) setDlg(() { children = next; childrenAges.add(age); });
               });
             } else {
-              setDlg(() {
-                children = next;
-                if (childrenAges.isNotEmpty) childrenAges.removeLast();
-              });
+              setDlg(() { children = next; if (childrenAges.isNotEmpty) childrenAges.removeLast(); });
             }
           }
 
@@ -531,23 +307,16 @@ class _HomeScreenState extends State<HomeScreen> {
               children: [
                 _passengerRow('Adultes', '12 ans et +', adults,
                     onMinus: adults > 1 ? () => setDlg(() => adults--) : null,
-                    onPlus: adults < 9  ? () => setDlg(() => adults++) : null),
+                    onPlus:  adults < 9 ? () => setDlg(() => adults++) : null),
                 const Divider(height: 24),
                 _passengerRow('Enfants', '2 – 11 ans', children,
                     onMinus: children > 0 ? () => changeChildren(-1) : null,
-                    onPlus: children < 8  ? () => changeChildren(1)  : null),
+                    onPlus:  children < 8 ? () => changeChildren(1)  : null),
                 if (childrenAges.isNotEmpty) ...[
                   const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 6,
-                    children: childrenAges.asMap().entries.map((e) =>
-                      Chip(
-                        label: Text('Enfant ${e.key + 1}: ${e.value} ans',
-                            style: const TextStyle(fontSize: 12)),
-                        backgroundColor: Colors.blue.shade50,
-                      ),
-                    ).toList(),
-                  ),
+                  Wrap(spacing: 6, children: childrenAges.asMap().entries.map((e) =>
+                    Chip(label: Text('Enfant ${e.key+1}: ${e.value} ans', style: const TextStyle(fontSize: 12)),
+                        backgroundColor: Colors.blue.shade50)).toList()),
                 ],
               ],
             ),
@@ -555,11 +324,7 @@ class _HomeScreenState extends State<HomeScreen> {
               TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Annuler')),
               ElevatedButton(
                 onPressed: () {
-                  setState(() {
-                    _adults       = adults;
-                    _children     = children;
-                    _childrenAges = childrenAges;
-                  });
+                  setState(() { _adults = adults; _children = children; _childrenAges = childrenAges; });
                   Navigator.pop(ctx);
                 },
                 child: const Text('Confirmer'),
@@ -575,31 +340,19 @@ class _HomeScreenState extends State<HomeScreen> {
       {VoidCallback? onMinus, VoidCallback? onPlus}) {
     return Row(
       children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
-              Text(subtitle, style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
-            ],
-          ),
-        ),
-        IconButton(
-          onPressed: onMinus,
-          icon: Icon(Icons.remove_circle_outline,
-              color: onMinus != null ? Colors.blue : Colors.grey.shade300),
-        ),
-        SizedBox(
-          width: 28,
-          child: Text('$count',
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-        ),
-        IconButton(
-          onPressed: onPlus,
-          icon: Icon(Icons.add_circle_outline,
-              color: onPlus != null ? Colors.blue : Colors.grey.shade300),
-        ),
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+          Text(subtitle, style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
+        ])),
+        IconButton(onPressed: onMinus,
+            icon: Icon(Icons.remove_circle_outline,
+                color: onMinus != null ? Colors.blue : Colors.grey.shade300)),
+        SizedBox(width: 28,
+            child: Text('$count', textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold))),
+        IconButton(onPressed: onPlus,
+            icon: Icon(Icons.add_circle_outline,
+                color: onPlus != null ? Colors.blue : Colors.grey.shade300)),
       ],
     );
   }
@@ -607,63 +360,531 @@ class _HomeScreenState extends State<HomeScreen> {
   void _showClassDialog() {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (ctx) => AlertDialog(
         title: const Text('Classe de voyage'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
-          children: ['Economique', 'Affaires', 'Première']
-              .map((v) => ListTile(
-                    title: Text(v),
-                    onTap: () {
-                      setState(() => flightClass = v);
-                      Navigator.pop(context);
-                    },
-                  ))
-              .toList(),
+          children: ['Economique', 'Affaires', 'Première'].map((v) => ListTile(
+                title: Text(v),
+                onTap: () { setState(() => _flightClass = v); Navigator.pop(ctx); },
+              )).toList(),
         ),
       ),
     );
   }
 
-  Widget _buildOptionsRow() {
+  String get _passengersLabel {
+    final parts = <String>[];
+    if (_adults   > 0) parts.add('$_adults Siège${_adults > 1 ? 's' : ''}');
+    if (_children > 0) parts.add('$_children Enfant${_children > 1 ? 's' : ''}');
+    return parts.isEmpty ? 'Sièges' : parts.join(', ');
+  }
+
+  // ── Build ────────────────────────────────────────────────────────────────────
+
+  @override
+  Widget build(BuildContext context) {
+    return LoadingOverlay(
+      isLoading: _isSearching,
+      message: 'Recherche de vols…',
+      child: SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ── Header avec world map (hauteur fixe) ────────────────────────
+          Stack(
+            children: [
+              // World map zoomée et centrée
+              Positioned.fill(
+                child: ClipRect(
+                  child: Transform.scale(
+                    scale: 1.8,
+                    alignment: Alignment.center,
+                    child: Image.asset(
+                      'assets/images/download.jpg',
+                      fit: BoxFit.cover,
+                      alignment: Alignment.center,
+                    ),
+                  ),
+                ),
+              ),
+              // Overlay bleu
+              Positioned.fill(
+                child: ColoredBox(color: _kBlue.withValues(alpha: 0.85)),
+              ),
+              // Contenu
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+                child: _buildHeader(),
+              ),
+            ],
+          ),
+          // ── Carte de recherche sur fond bleu solide ──────────────────────
+          Container(
+            color: _kBlue,
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 28),
+            child: _buildSearchCard(),
+          ),
+          // ── Light grey body ──────────────────────────────────────────────
+          Container(
+            color: const Color(0xFFF4F6FF),
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
+            child: _buildSpecialOffers(),
+          ),
+        ],
+      ),
+    ),
+  );
+  }
+
+  // ── Header ───────────────────────────────────────────────────────────────────
+
+  Widget _buildHeader() {
     return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        _buildOption("Direct", isDirect, (v) => setState(() => isDirect = v!)),
-        _buildOption("Bagages", hasBaggage, (v) => setState(() => hasBaggage = v!)),
-        _buildOption("Remboursable", isRefundable, (v) => setState(() => isRefundable = v!)),
+        // Avatar
+        Container(
+          width: 48, height: 48,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: Colors.white.withValues(alpha: 0.25),
+            border: Border.all(color: Colors.white54, width: 2),
+          ),
+          child: const Icon(Icons.person, color: Colors.white, size: 28),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                _firstName.isNotEmpty ? 'Bienvenue, $_firstName' : 'Bienvenue',
+                style: const TextStyle(
+                    color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+        ),
+        // Bell
+        Stack(
+          children: [
+            Container(
+              width: 44, height: 44,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white38, width: 1.5),
+              ),
+              child: const Icon(Icons.notifications_outlined,
+                  color: Colors.white, size: 22),
+            ),
+            Positioned(
+              top: 8, right: 8,
+              child: Container(
+                width: 8, height: 8,
+                decoration: const BoxDecoration(
+                    color: Colors.red, shape: BoxShape.circle),
+              ),
+            ),
+          ],
+        ),
       ],
     );
   }
 
-  Widget _buildOption(String title, bool value, Function(bool?) onChanged) {
+  // ── Search card ───────────────────────────────────────────────────────────────
+
+  Widget _buildSearchCard() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.10),
+            blurRadius: 20,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.fromLTRB(16, 20, 16, 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildTripTabs(),
+          const SizedBox(height: 18),
+          _buildFromToSection(),
+          const SizedBox(height: 12),
+          _buildDateField(
+            label: 'Date de départ',
+            value: _departureDate == null
+                ? 'Date de départ'
+                : _formatDisplayDate(_departureDate),
+            isPlaceholder: _departureDate == null,
+            onTap: () => _pickDate(isDeparture: true),
+          ),
+          if (_tripType == 1) ...[
+            const SizedBox(height: 12),
+            _buildDateField(
+              label: 'Date de retour',
+              value: _returnDate == null
+                  ? 'Date de retour'
+                  : _formatReturnDate(_returnDate),
+              isPlaceholder: _returnDate == null,
+              onTap: () => _pickDate(isDeparture: false),
+            ),
+          ],
+          const SizedBox(height: 12),
+          _buildPassengerClassRow(),
+          const SizedBox(height: 20),
+          _buildSearchButton(),
+        ],
+      ),
+    );
+  }
+
+  // ── Tabs ──────────────────────────────────────────────────────────────────────
+
+  Widget _buildTripTabs() {
+    final tabs = ['Aller Simple', 'Aller-Retour', 'Multi-dest.'];
     return Row(
+      children: tabs.asMap().entries.map((e) {
+        final active = _tripType == e.key;
+        return Padding(
+          padding: EdgeInsets.only(right: e.key < tabs.length - 1 ? 8 : 0),
+          child: GestureDetector(
+            onTap: () => setState(() => _tripType = e.key),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+              decoration: BoxDecoration(
+                color: active ? _kBlue : Colors.transparent,
+                borderRadius: BorderRadius.circular(30),
+                border: Border.all(
+                  color: active ? _kBlue : Colors.grey.shade300,
+                ),
+              ),
+              child: Text(
+                e.value,
+                style: TextStyle(
+                  color: active ? Colors.white : Colors.black87,
+                  fontWeight: FontWeight.w500,
+                  fontSize: 12,
+                ),
+              ),
+            ),
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  // ── From / To ─────────────────────────────────────────────────────────────────
+
+  Widget _buildFromToSection() {
+    return Stack(
+      clipBehavior: Clip.none,
       children: [
-        Checkbox(
-          value: value,
-          onChanged: onChanged,
-          activeColor: Colors.blue,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+        Column(
+          children: [
+            GestureDetector(
+              onTap: () => _pickAirport(isFrom: true),
+              child: _fieldBox(
+                label: 'Départ',
+                value: _fromSelected ? _fromLabel : 'Origine',
+                icon: Icons.flight_takeoff,
+                isPlaceholder: !_fromSelected,
+              ),
+            ),
+            const SizedBox(height: 10),
+            GestureDetector(
+              onTap: () => _pickAirport(isFrom: false),
+              child: _fieldBox(
+                label: 'Destination',
+                value: _toSelected ? _toLabel : 'Destination',
+                icon: Icons.flight_land,
+                isPlaceholder: !_toSelected,
+              ),
+            ),
+          ],
         ),
-        Text(title, style: const TextStyle(fontSize: 12)),
+        Positioned(
+          right: 14,
+          width: 44,
+          top: 0,
+          bottom: 0,
+          child: Center(
+            child: GestureDetector(
+              onTap: _swapAirports,
+              child: Container(
+                width: 40, height: 40,
+                decoration: const BoxDecoration(
+                    color: _kBlue, shape: BoxShape.circle),
+                child: const Icon(Icons.swap_vert,
+                    color: Colors.white, size: 22),
+              ),
+            ),
+          ),
+        ),
       ],
     );
   }
+
+  // ── Date field ────────────────────────────────────────────────────────────────
+
+  Widget _buildDateField({
+    required String label,
+    required String value,
+    required VoidCallback onTap,
+    bool isPlaceholder = false,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: _fieldBox(
+        label: label,
+        value: value,
+        icon: Icons.calendar_month_outlined,
+        isPlaceholder: isPlaceholder,
+      ),
+    );
+  }
+
+  // ── Passenger + Class ──────────────────────────────────────────────────────────
+
+  Widget _buildPassengerClassRow() {
+    return Row(
+      children: [
+        Expanded(
+          child: GestureDetector(
+            onTap: _showPassengerDialog,
+            child: _fieldBox(
+              label: 'Passagers',
+              value: _passengersLabel,
+              icon: Icons.person_outline,
+              isPlaceholder: _adults == 0,
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: GestureDetector(
+            onTap: _showClassDialog,
+            child: _fieldBox(
+              label: 'Classe',
+              value: _flightClass,
+              icon: Icons.airline_seat_recline_normal_outlined,
+              isPlaceholder: false,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ── Shared field box ───────────────────────────────────────────────────────────
+
+  Widget _fieldBox({
+    required String label,
+    required String value,
+    required IconData icon,
+    bool isPlaceholder = false,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(14, 11, 14, 13),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label,
+              style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
+          const SizedBox(height: 5),
+          Row(
+            children: [
+              Icon(icon,
+                  size: 20,
+                  color: isPlaceholder
+                      ? Colors.grey.shade400
+                      : Colors.black87),
+              const SizedBox(width: 10),
+              Flexible(
+                child: Text(
+                  value,
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: isPlaceholder
+                        ? FontWeight.w400
+                        : FontWeight.w600,
+                    color: isPlaceholder
+                        ? Colors.grey.shade400
+                        : Colors.black87,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Search button ──────────────────────────────────────────────────────────────
 
   Widget _buildSearchButton() {
     return SizedBox(
       width: double.infinity,
-      height: 55,
-      child: ElevatedButton.icon(
+      height: 54,
+      child: ElevatedButton(
         onPressed: _searchFlights,
-        icon: const Icon(Icons.search, color: Colors.white),
-        label: const Text("Rechercher",
-            style: TextStyle(color: Colors.white, fontSize: 18)),
         style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.blue,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+          backgroundColor: _kBlue,
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14)),
+          elevation: 0,
+        ),
+        child: const Text(
+          'Rechercher des vols',
+          style: TextStyle(
+              color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600),
         ),
       ),
+    );
+  }
+
+  // ── Special offers ─────────────────────────────────────────────────────────────
+
+  Widget _buildSpecialOffers() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text('Offres spéciales',
+                style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87)),
+            TextButton(
+              onPressed: () {},
+              style: TextButton.styleFrom(padding: EdgeInsets.zero),
+              child: Row(
+                children: [
+                  Text('Voir tout',
+                      style: TextStyle(
+                          color: _kBlue, fontWeight: FontWeight.w600)),
+                  Icon(Icons.chevron_right, color: _kBlue, size: 18),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        // Promo banner card
+        Container(
+          height: 140,
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [Color(0xFF1A47CC), Color(0xFF3B82F6)],
+              begin: Alignment.centerLeft,
+              end: Alignment.centerRight,
+            ),
+            borderRadius: BorderRadius.circular(16),
+          ),
+          clipBehavior: Clip.hardEdge,
+          child: Stack(
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Text('25% DE RÉDUCTION',
+                        style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 22,
+                            fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 6),
+                    Text('Sur tous les vols internationaux',
+                        style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.85),
+                            fontSize: 13)),
+                  ],
+                ),
+              ),
+              Positioned(
+                right: -10,
+                top: 0,
+                bottom: 0,
+                child: Opacity(
+                  opacity: 0.3,
+                  child: const Icon(Icons.flight,
+                      size: 100, color: Colors.white),
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (_recommendations.isNotEmpty) ...[
+          const SizedBox(height: 20),
+          const Text('Compagnies recommandées',
+              style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87)),
+          const SizedBox(height: 10),
+          ..._recommendations.map((r) {
+            final compagnie  = r['compagnie'] as String? ?? '';
+            final confidence =
+                (((r['confidence'] as num?) ?? 0) * 100).toStringAsFixed(0);
+            return Card(
+              margin: const EdgeInsets.only(bottom: 10),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14)),
+              elevation: 0,
+              color: Colors.white,
+              child: ListTile(
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                leading: Container(
+                  width: 42, height: 42,
+                  decoration: BoxDecoration(
+                    color: _kBlue.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.flight, color: _kBlue, size: 20),
+                ),
+                title: Text(compagnie,
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1),
+                subtitle: Text(
+                  '$confidence% des voyageurs choisissent cette compagnie',
+                  style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+                  maxLines: 2,
+                ),
+                trailing: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: _kBlue.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text('$confidence%',
+                      style: TextStyle(
+                          color: _kBlue,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13)),
+                ),
+              ),
+            );
+          }),
+        ],
+      ],
     );
   }
 }

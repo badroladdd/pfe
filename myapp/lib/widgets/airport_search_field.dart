@@ -3,8 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:myapp/api.dart';
 import 'package:myapp/data/airports.dart';
 
-Future<String?> showAirportSearch(BuildContext context, {String? current}) {
-  return showModalBottomSheet<String>(
+/// Returns a map with keys: iata, city, country, name
+/// or null if the user dismissed.
+Future<Map<String, String>?> showAirportSearch(
+    BuildContext context, {String? current}) {
+  return showModalBottomSheet<Map<String, String>>(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
@@ -37,14 +40,20 @@ class _AirportSearchSheetState extends State<_AirportSearchSheet> {
                         'city': a.city, 'country': a.country})
           .toList();
     }
-    // Si l'API a déjà répondu, utiliser ses résultats
-    if (_apiResults != null) return _apiResults!;
-    // Sinon afficher le filtre statique pendant le chargement
-    return kAirports
+
+    // Résultats statiques — la capitale de chaque pays est en premier dans kAirports
+    final staticResults = kAirports
         .where((a) => a.matches(q))
         .map((a) => {'iata': a.iata, 'name': a.name,
                       'city': a.city, 'country': a.country})
         .toList();
+
+    // Si l'API a répondu avec des résultats, les utiliser
+    // Si l'API a répondu vide (ex. mot français "espagne"), fallback statique
+    if (_apiResults != null && _apiResults!.isNotEmpty) return _apiResults!;
+
+    // Sinon : statique (pendant chargement API ou si API vide)
+    return staticResults;
   }
 
   @override
@@ -226,7 +235,7 @@ class _AirportSearchSheetState extends State<_AirportSearchSheet> {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis),
                         onTap: () =>
-                            Navigator.pop(context, a['iata']),
+                            Navigator.pop(context, a),
                       );
                     },
                   ),

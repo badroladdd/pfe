@@ -45,15 +45,15 @@ class _MainNavigationState extends State<MainNavigation> {
           BottomNavigationBarItem(
               icon: Icon(Icons.home_outlined),
               activeIcon: Icon(Icons.home),
-              label: "Accueil"),
+              label: 'Accueil'),
           BottomNavigationBarItem(
               icon: Icon(Icons.calendar_month_outlined),
               activeIcon: Icon(Icons.calendar_month),
-              label: "Mes voyages"),
+              label: 'Mes voyages'),
           BottomNavigationBarItem(
               icon: Icon(Icons.person_outline),
               activeIcon: Icon(Icons.person),
-              label: "Profile"),
+              label: 'Profile'),
         ],
       ),
     );

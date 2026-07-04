@@ -1,3 +1,4 @@
+import random
 import uuid
 
 from django.contrib.auth.models import (
@@ -6,6 +7,7 @@ from django.contrib.auth.models import (
     PermissionsMixin,
 )
 from django.db import models
+from django.utils import timezone
 
 
 class UserManager(BaseUserManager):
@@ -62,3 +64,24 @@ class User(AbstractBaseUser, PermissionsMixin):
     @property
     def full_name(self):
         return f"{self.first_name} {self.last_name}".strip()
+
+
+class PasswordResetToken(models.Model):
+    email = models.EmailField(db_index=True)
+    code = models.CharField(max_length=6)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    used = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = "password_reset_tokens"
+
+    @classmethod
+    def create_for(cls, email):
+        cls.objects.filter(email=email, used=False).delete()
+        code = f"{random.randint(0, 999999):06d}"
+        expires_at = timezone.now() + timezone.timedelta(minutes=15)
+        return cls.objects.create(email=email, code=code, expires_at=expires_at)
+
+    def is_valid(self):
+        return not self.used and timezone.now() < self.expires_at
