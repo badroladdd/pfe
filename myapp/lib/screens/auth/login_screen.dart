@@ -3,6 +3,7 @@ import 'package:myapp/api.dart';
 import 'package:myapp/navigation/admin_navigation.dart';
 import 'package:myapp/navigation/agent_navigation.dart';
 import 'package:myapp/navigation/main_navigation.dart';
+import 'package:myapp/screens/auth/forgot_password_screen.dart';
 import 'package:myapp/screens/auth/register_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -98,7 +99,19 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                 ),
               ),
-              const SizedBox(height: 28),
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const ForgotPasswordScreen()),
+                  ),
+                  child: const Text('Mot de passe oublié ?',
+                      style: TextStyle(color: Colors.blue)),
+                ),
+              ),
+              const SizedBox(height: 16),
               SizedBox(
                 width: double.infinity,
                 height: 52,

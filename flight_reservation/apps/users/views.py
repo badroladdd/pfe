@@ -149,22 +149,25 @@ class ForgotPasswordView(APIView):
         if not email:
             return Response({"detail": "Email is required."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Always return success to avoid user enumeration
-        if User.objects.filter(email=email).exists():
-            token = PasswordResetToken.create_for(email)
-            send_mail(
-                subject="Réinitialisation de votre mot de passe FlyApp",
-                message=(
-                    f"Votre code de réinitialisation est : {token.code}\n\n"
-                    f"Ce code est valable 15 minutes.\n"
-                    f"Si vous n'avez pas demandé cette réinitialisation, ignorez cet email."
-                ),
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[email],
-                fail_silently=True,
+        if not User.objects.filter(email=email).exists():
+            return Response(
+                {"detail": "Aucun compte associé à cet email."},
+                status=status.HTTP_404_NOT_FOUND,
             )
 
-        return Response({"detail": "Si cet email existe, un code a été envoyé."})
+        token = PasswordResetToken.create_for(email)
+        send_mail(
+            subject="Réinitialisation de votre mot de passe FlyApp",
+            message=(
+                f"Votre code de réinitialisation est : {token.code}\n\n"
+                f"Ce code est valable 15 minutes.\n"
+                f"Si vous n'avez pas demandé cette réinitialisation, ignorez cet email."
+            ),
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[email],
+            fail_silently=True,
+        )
+        return Response({"detail": "Code envoyé à votre email."})
 
 
 class ResetPasswordView(APIView):
