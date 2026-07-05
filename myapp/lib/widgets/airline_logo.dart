@@ -3,12 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:http/http.dart' as http;
 
-const String _kApiBase = String.fromEnvironment(
-  'API_BASE_URL',
-  defaultValue: 'https://amadeus-project.onrender.com/api/v1',
-);
+const _kDuffelLogoUrl =
+    'https://assets.duffel.com/img/airlines/for-light-background/full-color-logo';
 
-/// Displays an airline logo fetched from Duffel's CDN.
+/// Displays an airline logo fetched directly from Duffel's public CDN
+/// (CORS: access-control-allow-origin: *).
 /// Falls back to a coloured initial if the logo is unavailable.
 class AirlineLogo extends StatefulWidget {
   final String code;
@@ -27,7 +26,7 @@ class AirlineLogo extends StatefulWidget {
 }
 
 class _AirlineLogoState extends State<AirlineLogo> {
-  // Shared across all instances: code → bytes (null = known failure)
+  // Shared across all instances: IATA code → SVG bytes (null = known failure)
   static final Map<String, Uint8List?> _cache = {};
 
   Uint8List? _bytes;
@@ -58,13 +57,13 @@ class _AirlineLogoState extends State<AirlineLogo> {
     }
 
     try {
-      final url = '$_kApiBase/airlines/logo/$code/';
+      final url = '$_kDuffelLogoUrl/$code.svg';
       final resp = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 8));
       if (resp.statusCode == 200 && resp.bodyBytes.isNotEmpty) {
         _cache[code] = resp.bodyBytes;
         if (mounted) setState(() => _bytes = resp.bodyBytes);
       } else {
-        _cache[code] = null; // mark as unavailable so we don't retry
+        _cache[code] = null;
       }
     } catch (_) {
       _cache[code] = null;
