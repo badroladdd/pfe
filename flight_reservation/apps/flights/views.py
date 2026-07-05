@@ -1,3 +1,4 @@
+import re
 import requests as req_lib
 
 from django.http import HttpResponse
@@ -273,7 +274,7 @@ class AirlineLogoView(APIView):
 
     def get(self, request, code: str):
         code = code.strip().upper()
-        if not code.isalpha() or len(code) > 4:
+        if not re.match(r'^[A-Z0-9]{2,4}$', code):
             return HttpResponse(status=400)
 
         if code in self._cache:
