@@ -1,3 +1,7 @@
+import requests as req_lib
+
+from django.http import HttpResponse
+
 from rest_framework import status
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
@@ -160,6 +164,11 @@ def _attach_summary(offer: dict, dictionaries: dict | None = None) -> dict:
         "is_round_trip":   is_round_trip,
         "return":          return_info,
         "last_ticketing_date": offer.get("lastTicketingDate", ""),
+        "logo_url": (
+            f"https://assets.duffel.com/img/airlines/for-light-background"
+            f"/full-color-logo/{carrier_code}.svg"
+            if carrier_code else ""
+        ),
     }
 
     # Attach dictionaries so Flutter can resolve carrier/aircraft names
@@ -248,3 +257,44 @@ class RecommendationsView(APIView):
         from apps.flights.apriori_service import get_recommendations
         results = get_recommendations(origin, destination)
         return Response({"origin": origin, "destination": destination, "results": results})
+
+
+class AirlineLogoView(APIView):
+    """
+    GET /api/v1/airlines/logo/<code>/
+    Proxies the airline logo SVG from Duffel's CDN so Flutter web avoids CORS.
+    Logos are served with a 24-hour cache header.
+    """
+
+    permission_classes = [AllowAny]
+
+    # In-process cache: code -> (svg_bytes | None)
+    _cache: dict = {}
+
+    def get(self, request, code: str):
+        code = code.strip().upper()
+        if not code.isalpha() or len(code) > 4:
+            return HttpResponse(status=400)
+
+        if code in self._cache:
+            data = self._cache[code]
+            if data is None:
+                return HttpResponse(status=404)
+            return HttpResponse(data, content_type="image/svg+xml",
+                                headers={"Cache-Control": "public, max-age=86400"})
+
+        url = (
+            f"https://assets.duffel.com/img/airlines/for-light-background"
+            f"/full-color-logo/{code}.svg"
+        )
+        try:
+            resp = req_lib.get(url, timeout=6)
+            if resp.status_code == 200 and resp.content:
+                self._cache[code] = resp.content
+                return HttpResponse(resp.content, content_type="image/svg+xml",
+                                    headers={"Cache-Control": "public, max-age=86400"})
+            self._cache[code] = None
+            return HttpResponse(status=404)
+        except Exception:
+            self._cache[code] = None
+            return HttpResponse(status=502)

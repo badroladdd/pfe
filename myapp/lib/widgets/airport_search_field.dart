@@ -6,18 +6,19 @@ import 'package:myapp/data/airports.dart';
 /// Returns a map with keys: iata, city, country, name
 /// or null if the user dismissed.
 Future<Map<String, String>?> showAirportSearch(
-    BuildContext context, {String? current}) {
+    BuildContext context, {String? current, String label = ''}) {
   return showModalBottomSheet<Map<String, String>>(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
-    builder: (_) => _AirportSearchSheet(current: current),
+    builder: (_) => _AirportSearchSheet(current: current, label: label),
   );
 }
 
 class _AirportSearchSheet extends StatefulWidget {
   final String? current;
-  const _AirportSearchSheet({this.current});
+  final String label;
+  const _AirportSearchSheet({this.current, this.label = ''});
   @override
   State<_AirportSearchSheet> createState() => _AirportSearchSheetState();
 }
@@ -131,7 +132,31 @@ class _AirportSearchSheetState extends State<_AirportSearchSheet> {
               borderRadius: BorderRadius.circular(2),
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
+          if (widget.label.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                children: [
+                  Icon(
+                    widget.label == 'Arrivée'
+                        ? Icons.flight_land
+                        : Icons.flight_takeoff,
+                    color: const Color(0xFF3B82F6),
+                    size: 20,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    widget.label,
+                    style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF3B82F6)),
+                  ),
+                ],
+              ),
+            ),
+          const SizedBox(height: 12),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: TextField(
@@ -139,7 +164,7 @@ class _AirportSearchSheetState extends State<_AirportSearchSheet> {
               autofocus: true,
               onChanged: _onChanged,
               decoration: InputDecoration(
-                hintText: 'Paris, CDG, Alger...',
+                hintText: 'Rechercher un aéroport...',
                 prefixIcon: _apiLoading
                     ? const Padding(
                         padding: EdgeInsets.all(12),

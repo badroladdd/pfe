@@ -70,24 +70,25 @@ class DuplicateBookingException extends ApiException {
 // ─── Token storage (SharedPreferences) ────────────────────────────────────────
 
 class _TokenStore {
+  static SharedPreferences? _prefs;
+
+  static Future<SharedPreferences> get _instance async =>
+      _prefs ??= await SharedPreferences.getInstance();
+
   static Future<void> save({required String access, required String refresh}) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _instance;
     await prefs.setString(_kAccessTokenKey, access);
     await prefs.setString(_kRefreshTokenKey, refresh);
   }
 
-  static Future<String?> getAccess() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(_kAccessTokenKey);
-  }
+  static Future<String?> getAccess() async =>
+      (await _instance).getString(_kAccessTokenKey);
 
-  static Future<String?> getRefresh() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(_kRefreshTokenKey);
-  }
+  static Future<String?> getRefresh() async =>
+      (await _instance).getString(_kRefreshTokenKey);
 
   static Future<void> clear() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _instance;
     await prefs.remove(_kAccessTokenKey);
     await prefs.remove(_kRefreshTokenKey);
   }
@@ -99,6 +100,13 @@ class ApiClient {
   ApiClient({String? baseUrl}) : _base = baseUrl ?? _kBaseUrl;
 
   final String _base;
+
+  // Shared HTTP client — reuses TCP connections across requests
+  static final _http = http.Client();
+
+  // Flight search cache — TTL 5 minutes
+  static final Map<String, ({List<Map<String, dynamic>> data, DateTime at})> _searchCache = {};
+  static const _cacheTtl = Duration(minutes: 2);
 
   // ══════════════════════════════════════════════════════════════════
   // AUTH
@@ -221,9 +229,19 @@ class ApiClient {
     bool hasBaggage   = false,
     bool refundable   = false,
     String currency   = 'EUR',
-    int maxResults    = 20,
+    int maxResults    = 100,
     String? returnDate,
   }) async {
+    final cacheKey =
+        '${origin.toUpperCase()}|${destination.toUpperCase()}|$departureDate'
+        '|$adults|$travelClass|${returnDate ?? ''}';
+    final cached = _searchCache[cacheKey];
+    if (cached != null &&
+        DateTime.now().difference(cached.at) < _cacheTtl) {
+      debugPrint('[API] searchFlights cache hit: $cacheKey');
+      return cached.data;
+    }
+
     final query = <String, String>{
       'origin':         origin.toUpperCase(),
       'destination':    destination.toUpperCase(),
@@ -244,9 +262,9 @@ class ApiClient {
     }
 
     final data = await _get('/flights/search/', queryParams: query, requiresAuth: false);
-    // Response envelope: { success, count, results: [...] }
-    final results = data['results'] as List<dynamic>;
-    return results.cast<Map<String, dynamic>>();
+    final results = (data['results'] as List<dynamic>).cast<Map<String, dynamic>>();
+    _searchCache[cacheKey] = (data: results, at: DateTime.now());
+    return results;
   }
 
   /// Confirm that a flight offer's price is still valid before booking.
@@ -699,12 +717,10 @@ class ApiClient {
   }) async {
     final uri = _buildUri(path, queryParams);
     debugPrint('[API] GET $uri');
-
-    final response = await _withRetry(() async => http.get(
+    final response = await _withRetry(() async => _http.get(
       uri,
       headers: await _headers(requiresAuth: requiresAuth),
     ));
-
     return _handleResponse(response);
   }
 
@@ -715,13 +731,11 @@ class ApiClient {
   }) async {
     final uri = _buildUri(path);
     debugPrint('[API] POST $uri — ${body.keys.join(', ')}');
-
-    final response = await _withRetry(() async => http.post(
+    final response = await _withRetry(() async => _http.post(
       uri,
       headers: await _headers(requiresAuth: requiresAuth),
       body: jsonEncode(body),
     ));
-
     return _handleResponse(response);
   }
 
@@ -731,25 +745,21 @@ class ApiClient {
   }) async {
     final uri = _buildUri(path);
     debugPrint('[API] PATCH $uri');
-
-    final response = await _withRetry(() async => http.patch(
+    final response = await _withRetry(() async => _http.patch(
       uri,
       headers: await _headers(),
       body: jsonEncode(body),
     ));
-
     return _handleResponse(response);
   }
 
   Future<Map<String, dynamic>> _delete(String path) async {
     final uri = _buildUri(path);
     debugPrint('[API] DELETE $uri');
-
-    final response = await _withRetry(() async => http.delete(
+    final response = await _withRetry(() async => _http.delete(
       uri,
       headers: await _headers(),
     ));
-
     return _handleResponse(response);
   }
 
@@ -816,15 +826,20 @@ class ApiClient {
 
   // ── Response parsing ──────────────────────────────────────────────────────
 
-  Map<String, dynamic> _handleResponse(http.Response response) {
+  static dynamic _decodeJson(String raw) => jsonDecode(raw);
+
+  Future<Map<String, dynamic>> _handleResponse(http.Response response) async {
     debugPrint('[API] ← ${response.statusCode} (${response.body.length} bytes)');
 
-    // 204 No Content — reponse vide valide (DELETE)
     if (response.statusCode == 204) return {};
 
     Map<String, dynamic> body;
     try {
-      body = jsonDecode(response.body) as Map<String, dynamic>;
+      // Offload heavy JSON (> 50 KB) to a background isolate
+      final dynamic decoded = response.body.length > 50000
+          ? await compute(_decodeJson, response.body)
+          : jsonDecode(response.body);
+      body = decoded as Map<String, dynamic>;
     } catch (_) {
       if (response.statusCode >= 200 && response.statusCode < 300) return {};
       throw ApiException(

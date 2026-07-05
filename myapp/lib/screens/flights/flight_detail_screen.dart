@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:myapp/data/airports.dart';
+import 'package:myapp/widgets/airline_logo.dart';
 import 'package:myapp/models/flight.dart';
 import 'package:myapp/screens/flights/passenger_form_screen.dart';
 import 'package:myapp/utils/currency.dart';
@@ -30,6 +32,17 @@ class FlightDetailScreen extends StatelessWidget {
   String _aircraftName(String code) {
     final aircraft = _dicts['aircraft'] as Map<String, dynamic>? ?? {};
     return aircraft[code]?.toString() ?? code;
+  }
+
+  String _cityCountry(String iata) {
+    if (iata.isEmpty) return '';
+    try {
+      final a = kAirports.firstWhere((a) => a.iata == iata.toUpperCase());
+      final parts = [a.city, a.country].where((s) => s.isNotEmpty).toList();
+      return parts.join(', ');
+    } catch (_) {
+      return '';
+    }
   }
 
   // ── Segment cabin & bags from travelerPricings ───────────────────────────
@@ -75,6 +88,17 @@ class FlightDetailScreen extends StatelessWidget {
       const months = ['Jan.','Fév.','Mar.','Avr.','Mai','Juin',
                       'Juil.','Août','Sep.','Oct.','Nov.','Déc.'];
       return '${days[dt.weekday - 1]} ${dt.day} ${months[dt.month - 1]}';
+    } catch (_) { return ''; }
+  }
+
+  String _layoverDuration(String? arrIso, String? depIso) {
+    if (arrIso == null || depIso == null) return '';
+    try {
+      final diff = DateTime.parse(depIso).difference(DateTime.parse(arrIso));
+      if (diff.isNegative) return '';
+      final h = diff.inHours;
+      final m = diff.inMinutes.remainder(60);
+      return h > 0 ? '${h}h ${m.toString().padLeft(2, '0')}m' : '${m}m';
     } catch (_) { return ''; }
   }
 
@@ -172,7 +196,10 @@ class FlightDetailScreen extends StatelessWidget {
                   Text(_time(depAt),
                       style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
                   Text(originIata,
-                      style: const TextStyle(fontSize: 13, color: Colors.black54)),
+                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                  if (_cityCountry(originIata).isNotEmpty)
+                    Text(_cityCountry(originIata),
+                        style: const TextStyle(fontSize: 11, color: Colors.black54)),
                 ]),
                 Column(children: [
                   Text(
@@ -195,7 +222,10 @@ class FlightDetailScreen extends StatelessWidget {
                   Text(_time(arrAt),
                       style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
                   Text(destIata,
-                      style: const TextStyle(fontSize: 13, color: Colors.black54)),
+                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                  if (_cityCountry(destIata).isNotEmpty)
+                    Text(_cityCountry(destIata),
+                        style: const TextStyle(fontSize: 11, color: Colors.black54)),
                 ]),
               ],
             ),
@@ -228,7 +258,53 @@ class FlightDetailScreen extends StatelessWidget {
             const SizedBox(height: 12),
 
             // ── Segments ──────────────────────────────────────────
-            for (final seg in segments) _buildSegmentDetail(seg),
+            for (int s = 0; s < segments.length; s++) ...[
+              _buildSegmentDetail(segments[s]),
+              if (s < segments.length - 1) ...[
+                Builder(builder: (_) {
+                  final arrIso = (segments[s]['arrival']       as Map?)?['at']?.toString();
+                  final depIso = (segments[s+1]['departure']   as Map?)?['at']?.toString();
+                  final arrIata = (segments[s]['arrival']      as Map?)?['iataCode']?.toString() ?? '';
+                  final dur = _layoverDuration(arrIso, depIso);
+                  final airport = kAirports.firstWhere(
+                    (a) => a.iata == arrIata,
+                    orElse: () => Airport(iata: arrIata, name: '', city: '', country: ''),
+                  );
+                  final location = [airport.city, airport.country]
+                      .where((s) => s.isNotEmpty).join(', ');
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 16),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.shade50,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: Colors.orange.shade200),
+                    ),
+                    child: Row(children: [
+                      Icon(Icons.access_time, size: 16, color: Colors.orange.shade700),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Text(
+                            'Escale à $arrIata${dur.isNotEmpty ? ' · $dur' : ''}',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.orange.shade700,
+                            ),
+                          ),
+                          if (location.isNotEmpty)
+                            Text(
+                              location,
+                              style: TextStyle(fontSize: 12, color: Colors.orange.shade600),
+                            ),
+                        ]),
+                      ),
+                    ]),
+                  );
+                }),
+              ],
+            ],
           ],
         ),
       ),
@@ -262,17 +338,7 @@ class FlightDetailScreen extends StatelessWidget {
       children: [
         // Airline header
         Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Container(
-            width: 48, height: 48,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: Colors.grey.shade100,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.grey.shade200),
-            ),
-            child: Text(carrierCode,
-                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-          ),
+          AirlineLogo(code: carrierCode, size: 48),
           const SizedBox(width: 12),
           Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(carrierName,
@@ -380,6 +446,9 @@ class FlightDetailScreen extends StatelessWidget {
       ]),
       const SizedBox(height: 2),
       Text(iata, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+      if (_cityCountry(iata).isNotEmpty)
+        Text(_cityCountry(iata),
+            style: const TextStyle(fontSize: 12, color: Colors.black54)),
       if (terminal.isNotEmpty)
         Text('Terminal $terminal',
             style: const TextStyle(fontSize: 12, color: Colors.black45)),

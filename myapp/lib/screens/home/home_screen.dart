@@ -106,26 +106,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  bool _offerHasBaggage(Map<String, dynamic> offer) {
-    for (final slice in (offer['slices'] as List?)?.cast<Map<String, dynamic>>() ?? []) {
-      for (final seg in (slice['segments'] as List?)?.cast<Map<String, dynamic>>() ?? []) {
-        for (final pax in (seg['passengers'] as List?)?.cast<Map<String, dynamic>>() ?? []) {
-          if (((pax['baggages'] as List?) ?? []).isNotEmpty) return true;
-        }
-      }
-    }
-    return false;
-  }
-
-  bool _offerIsRefundable(Map<String, dynamic> offer) {
-    if ((offer['conditions'] as Map?)?['refundable'] == true) return true;
-    for (final slice in (offer['slices'] as List?)?.cast<Map<String, dynamic>>() ?? []) {
-      for (final seg in (slice['segments'] as List?)?.cast<Map<String, dynamic>>() ?? []) {
-        if ((seg['conditions'] as Map?)?['refundable'] == true) return true;
-      }
-    }
-    return false;
-  }
 
   Future<void> _searchFlights() async {
     if (!_isIataCode(_fromCode) || !_isIataCode(_toCode)) {
@@ -170,8 +150,8 @@ class _HomeScreenState extends State<HomeScreen> {
           passengers:   _adults.toString(),
           flightClass:  _flightClass,
           isDirect:     (s['stops'] ?? 1) == 0,
-          hasBaggage:   _offerHasBaggage(offer),
-          isRefundable: _offerIsRefundable(offer),
+          hasBaggage:   s['has_baggage'] == true,
+          isRefundable: s['is_refundable'] == true,
           price:        double.tryParse(s['total_price']?.toString() ?? '0') ?? 0,
           departureAt:  s['departure_at']?.toString() ?? '',
           arrivalAt:    s['arrival_at']?.toString() ?? '',
@@ -218,8 +198,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _pickAirport({required bool isFrom}) async {
-    final result = await showAirportSearch(
-        context, current: isFrom ? _fromCode : _toCode);
+    final result = await showAirportSearch(context, label: isFrom ? 'Départ' : 'Arrivée');
     if (result == null || !mounted) return;
     final code  = result['iata'] ?? '';
     final city  = result['city'] ?? '';
@@ -442,17 +421,6 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildHeader() {
     return Row(
       children: [
-        // Avatar
-        Container(
-          width: 48, height: 48,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: Colors.white.withValues(alpha: 0.25),
-            border: Border.all(color: Colors.white54, width: 2),
-          ),
-          child: const Icon(Icons.person, color: Colors.white, size: 28),
-        ),
-        const SizedBox(width: 12),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -535,6 +503,8 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
           const SizedBox(height: 12),
           _buildPassengerClassRow(),
+          const SizedBox(height: 12),
+          _buildQuickFilters(),
           const SizedBox(height: 20),
           _buildSearchButton(),
         ],
@@ -545,7 +515,7 @@ class _HomeScreenState extends State<HomeScreen> {
   // ── Tabs ──────────────────────────────────────────────────────────────────────
 
   Widget _buildTripTabs() {
-    final tabs = ['Aller Simple', 'Aller-Retour', 'Multi-dest.'];
+    final tabs = ['Aller Simple', 'Aller-Retour'];
     return Row(
       children: tabs.asMap().entries.map((e) {
         final active = _tripType == e.key;
@@ -730,6 +700,44 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
     );
+  }
+
+  // ── Quick filters ─────────────────────────────────────────────────────────────
+
+  Widget _buildQuickFilters() {
+    Widget chip(String label, IconData icon, bool active, VoidCallback onTap) {
+      return GestureDetector(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: active ? _kBlue : Colors.transparent,
+            borderRadius: BorderRadius.circular(30),
+            border: Border.all(color: active ? _kBlue : Colors.grey.shade300),
+          ),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(icon, size: 14, color: active ? Colors.white : Colors.grey.shade600),
+            const SizedBox(width: 5),
+            Text(label, style: TextStyle(
+              fontSize: 12, fontWeight: FontWeight.w600,
+              color: active ? Colors.white : Colors.grey.shade700,
+            )),
+          ]),
+        ),
+      );
+    }
+
+    return Row(children: [
+      chip('Direct', Icons.flight, isDirect,
+          () => setState(() => isDirect = !isDirect)),
+      const SizedBox(width: 8),
+      chip('Bagages', Icons.luggage, hasBaggage,
+          () => setState(() => hasBaggage = !hasBaggage)),
+      const SizedBox(width: 8),
+      chip('Remboursable', Icons.replay, isRefundable,
+          () => setState(() => isRefundable = !isRefundable)),
+    ]);
   }
 
   // ── Search button ──────────────────────────────────────────────────────────────
