@@ -945,7 +945,8 @@ class _FlightsResultScreenState extends State<FlightsResultScreen> {
                             final flight  = _flights[idx];
                             final summary = _rawOffers[idx]
                                 ['_summary'] as Map<String, dynamic>?;
-                            final carrier    = summary?['carrier']?.toString() ?? '';
+                            final carrier     = summary?['carrier']?.toString() ?? '';
+                            final carrierCode = summary?['carrier_code']?.toString() ?? '';
                             final isRoundTrip = summary?['is_round_trip'] == true;
                             final returnInfo  = summary?['return']
                                 as Map<String, dynamic>?;
@@ -953,6 +954,7 @@ class _FlightsResultScreenState extends State<FlightsResultScreen> {
                             return _FlightCard(
                               flight:         flight,
                               carrier:        carrier,
+                              carrierCode:    carrierCode,
                               isRoundTrip:    isRoundTrip,
                               returnInfo:     returnInfo,
                               cityFrom:       _cityName(flight.from),
@@ -1304,6 +1306,7 @@ class _WorldMapPainter extends CustomPainter {
 class _FlightCard extends StatelessWidget {
   final Flight flight;
   final String carrier;
+  final String carrierCode;
   final bool isRoundTrip;
   final Map<String, dynamic>? returnInfo;
   final String cityFrom;
@@ -1314,6 +1317,7 @@ class _FlightCard extends StatelessWidget {
   const _FlightCard({
     required this.flight,
     required this.carrier,
+    required this.carrierCode,
     required this.isRoundTrip,
     required this.returnInfo,
     required this.cityFrom,
@@ -1382,7 +1386,7 @@ class _FlightCard extends StatelessWidget {
               // ── Top: airline + price ──────────────────────────────────
               Row(
                 children: [
-                  AirlineLogo(code: carrier, size: 40, circle: true),
+                  AirlineLogo(code: carrierCode, size: 40, circle: true),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
