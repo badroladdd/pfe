@@ -1,5 +1,6 @@
 import re
 import requests as req_lib
+from datetime import datetime, timedelta
 
 from django.http import HttpResponse
 
@@ -258,6 +259,98 @@ class RecommendationsView(APIView):
         from apps.flights.apriori_service import get_recommendations
         results = get_recommendations(origin, destination)
         return Response({"origin": origin, "destination": destination, "results": results})
+
+
+class FlightCalendarView(APIView):
+    """
+    GET /api/v1/flights/calendar/
+    Returns cheapest price + carrier for every (dep_date × ret_date) cell in one shot.
+    All combinations are searched in parallel via ThreadPoolExecutor.
+
+    Query params:
+      origin, destination, dep_start, dep_end, ret_start, ret_end  (YYYY-MM-DD)
+      adults, children, infants, travel_class
+    Response:
+      { "cells": { "YYYY-MM-DD|YYYY-MM-DD": {"price": 123.45, "carrier_code": "AZ"} | null } }
+    """
+
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        origin      = request.query_params.get("origin", "").strip().upper()
+        destination = request.query_params.get("destination", "").strip().upper()
+        dep_start   = request.query_params.get("dep_start", "").strip()
+        dep_end     = request.query_params.get("dep_end",   "").strip()
+        ret_start   = request.query_params.get("ret_start", "").strip()
+        ret_end     = request.query_params.get("ret_end",   "").strip()
+        cabin_class = request.query_params.get("travel_class", "economy").lower()
+
+        try:
+            adults   = int(request.query_params.get("adults",   1))
+            children = int(request.query_params.get("children", 0))
+            infants  = int(request.query_params.get("infants",  0))
+        except (ValueError, TypeError):
+            return Response({"detail": "Invalid passenger counts."}, status=status.HTTP_400_BAD_REQUEST)
+
+        def _parse(s):
+            try:
+                return datetime.strptime(s, "%Y-%m-%d").date()
+            except (ValueError, TypeError):
+                return None
+
+        ds, de, rs, re_ = _parse(dep_start), _parse(dep_end), _parse(ret_start), _parse(ret_end)
+        if not all([ds, de, rs, re_, origin, destination]):
+            return Response({"detail": "origin, destination, dep_start, dep_end, ret_start, ret_end are required."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        def _dates(start, end):
+            result, d = [], start
+            while d <= end:
+                result.append(d)
+                d += timedelta(days=1)
+            return result
+
+        dep_dates = _dates(ds, de)
+        ret_dates = _dates(rs, re_)
+
+        passengers = [{"type": "adult"}] * max(adults, 1)
+        for _ in range(children):
+            passengers.append({"type": "child"})
+        passengers += [{"type": "infant"}] * infants
+
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        pairs = [(dep, ret) for dep in dep_dates for ret in ret_dates if dep < ret]
+
+        def _search_one(dep, ret):
+            key = f"{dep}|{ret}"
+            try:
+                result = services.search_flights(
+                    origin=origin, destination=destination,
+                    departure_date=str(dep), passengers=passengers,
+                    cabin_class=cabin_class, return_date=str(ret),
+                    max_results=1,
+                )
+                offers = result.get("offers", [])
+                dicts  = result.get("dictionaries", {})
+                if offers:
+                    s = _attach_summary(offers[0], dicts).get("_summary", {})
+                    price = float(s.get("total_price") or 0)
+                    code  = s.get("carrier_code", "")
+                    if price > 0:
+                        return key, {"price": price, "carrier_code": code}
+            except Exception:
+                pass
+            return key, None
+
+        cells = {}
+        with ThreadPoolExecutor(max_workers=10) as pool:
+            futures = {pool.submit(_search_one, dep, ret) for dep, ret in pairs}
+            for future in as_completed(futures):
+                key, val = future.result()
+                cells[key] = val
+
+        return Response({"cells": cells})
 
 
 class AirlineLogoView(APIView):

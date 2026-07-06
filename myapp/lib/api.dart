@@ -13,7 +13,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// Pour émulateur Android : utiliser 10.0.2.2
 const String _kBaseUrl = String.fromEnvironment(
   'API_BASE_URL',
-  defaultValue: 'https://amadeus-project.onrender.com/api/v1',
+  defaultValue: 'http://10.51.191.139:8000/api/v1',
 );
 
 const String _kAccessTokenKey  = 'access_token';
@@ -458,6 +458,43 @@ class ApiClient {
     };
     final data = await _post('/agent/reservations/', body: body);
     return data['data'] as Map<String, dynamic>;
+  }
+
+  // ══════════════════════════════════════════════════════════════════
+  // FLIGHT CALENDAR
+  // ══════════════════════════════════════════════════════════════════
+
+  /// Fetches cheapest price + carrier for every (dep × ret) date cell in one call.
+  /// Returns a map keyed "YYYY-MM-DD|YYYY-MM-DD" → {price, carrier_code} or null.
+  Future<Map<String, dynamic>> getFlightCalendar({
+    required String origin,
+    required String destination,
+    required String depStart,
+    required String depEnd,
+    required String retStart,
+    required String retEnd,
+    int adults      = 1,
+    int children    = 0,
+    int infants     = 0,
+    String travelClass = 'ECONOMY',
+  }) async {
+    final data = await _get(
+      '/flights/calendar/',
+      queryParams: {
+        'origin':       origin,
+        'destination':  destination,
+        'dep_start':    depStart,
+        'dep_end':      depEnd,
+        'ret_start':    retStart,
+        'ret_end':      retEnd,
+        'adults':       adults.toString(),
+        'children':     children.toString(),
+        'infants':      infants.toString(),
+        'travel_class': travelClass.toLowerCase(),
+      },
+      requiresAuth: false,
+    );
+    return (data['cells'] as Map<String, dynamic>?) ?? {};
   }
 
   // ══════════════════════════════════════════════════════════════════

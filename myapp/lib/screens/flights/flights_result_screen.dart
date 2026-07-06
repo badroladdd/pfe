@@ -4,6 +4,7 @@ import 'package:myapp/api.dart';
 import 'package:myapp/data/airports.dart';
 import 'package:myapp/models/flight.dart';
 import 'package:myapp/screens/flights/flight_detail_screen.dart';
+import 'package:myapp/screens/flights/price_calendar_screen.dart';
 import 'package:myapp/utils/currency.dart';
 import 'package:myapp/widgets/airport_search_field.dart';
 import 'package:myapp/widgets/airline_logo.dart';
@@ -72,6 +73,9 @@ class _FlightsResultScreenState extends State<FlightsResultScreen> {
   int       _currentChildren = 0;
   int       _currentInfants  = 0;
 
+  // ── Price calendar pre-fetch cache ─────────────────────────────────────────
+  Map<String, dynamic> _calendarCells = {};
+
   String _sortBy = 'price_asc';
 
   // ── Filter state ────────────────────────────────────────────────────────────
@@ -115,6 +119,12 @@ class _FlightsResultScreenState extends State<FlightsResultScreen> {
       }
     });
     _initFilters();
+    // Prefetch calendar immediately if this is a round-trip search
+    final dep = DateTime.tryParse(_currentDepartureDate);
+    final ret = DateTime.tryParse(_currentReturnDate ?? '');
+    if (dep != null && ret != null) {
+      _prefetchCalendar(dep, ret, _currentPassengers, 0, 0, _currentFlightClass);
+    }
   }
 
   Future<void> _doSearch({
@@ -213,6 +223,8 @@ class _FlightsResultScreenState extends State<FlightsResultScreen> {
         _sortBy           = 'price_asc';
       });
       _scrollCtrl.jumpTo(0);
+      // Prefetch calendar in background for round trips
+      if (returnDate != null) { _prefetchCalendar(departureDate, returnDate, passengers, children, infants, flightClass); }
     } catch (e) {
       if (mounted) {
         setState(() => _searching = false);
@@ -379,6 +391,83 @@ class _FlightsResultScreenState extends State<FlightsResultScreen> {
       }
     });
     return indices;
+  }
+
+  Future<void> _prefetchCalendar(
+    DateTime dep, DateTime ret,
+    int adults, int children, int infants, String flightClass,
+  ) async {
+    String travelClass;
+    switch (flightClass) {
+      case 'Affaires': travelClass = 'BUSINESS'; break;
+      case 'Première': travelClass = 'FIRST';    break;
+      default:         travelClass = 'ECONOMY';
+    }
+    String fmt(DateTime d) =>
+        '${d.year}-${d.month.toString().padLeft(2,'0')}-${d.day.toString().padLeft(2,'0')}';
+
+    final depStart = dep.subtract(const Duration(days: 2));
+    final depEnd   = depStart.add(const Duration(days: 4)); // 5 cols
+    final retStart = ret.subtract(const Duration(days: 1));
+    final retEnd   = retStart.add(const Duration(days: 3)); // 4 rows
+
+    try {
+      final cells = await _api.getFlightCalendar(
+        origin:      _currentFrom,
+        destination: _currentTo,
+        depStart:    fmt(depStart),
+        depEnd:      fmt(depEnd),
+        retStart:    fmt(retStart),
+        retEnd:      fmt(retEnd),
+        adults:      adults,
+        children:    children,
+        infants:     infants,
+        travelClass: travelClass,
+      );
+      if (mounted) setState(() => _calendarCells = cells);
+    } catch (_) {}
+  }
+
+  void _openPriceCalendar() {
+    final dep = DateTime.tryParse(_currentDepartureDate);
+    final ret = DateTime.tryParse(_currentReturnDate ?? '');
+    if (dep == null || ret == null) return;
+
+    String travelClass;
+    switch (_currentFlightClass) {
+      case 'Affaires': travelClass = 'BUSINESS'; break;
+      case 'Première': travelClass = 'FIRST';    break;
+      default:         travelClass = 'ECONOMY';
+    }
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PriceCalendarScreen(
+          origin:        _currentFrom,
+          destination:   _currentTo,
+          departureDate: dep,
+          returnDate:    ret,
+          adults:        _currentPassengers,
+          children:      _currentChildren,
+          infants:       _currentInfants,
+          travelClass:   travelClass,
+          initialCells:  _calendarCells,
+          onSelect: (newDep, newRet) {
+            _doSearch(
+              fromCode:      _currentFrom,
+              toCode:        _currentTo,
+              departureDate: newDep,
+              returnDate:    newRet,
+              passengers:    _currentPassengers,
+              children:      _currentChildren,
+              infants:       _currentInfants,
+              flightClass:   _currentFlightClass,
+            );
+          },
+        ),
+      ),
+    );
   }
 
   void _showEditSearch() {
@@ -859,7 +948,10 @@ class _FlightsResultScreenState extends State<FlightsResultScreen> {
                   IconButton(
                     icon: const Icon(Icons.calendar_today_outlined,
                         color: Colors.white),
-                    onPressed: () {},
+                    tooltip: 'Calendrier des prix',
+                    onPressed: _currentReturnDate != null
+                        ? _openPriceCalendar
+                        : null,
                   ),
                   IconButton(
                     icon: const Icon(Icons.more_vert, color: Colors.white),

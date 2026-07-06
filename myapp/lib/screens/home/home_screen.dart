@@ -41,7 +41,6 @@ class _HomeScreenState extends State<HomeScreen> {
   bool isRefundable = false;
 
   final ApiClient _api = ApiClient();
-  List<Map<String, dynamic>> _recommendations = [];
   String _firstName = '';
 
   @override
@@ -50,7 +49,6 @@ class _HomeScreenState extends State<HomeScreen> {
     _departureDate = DateTime.now().add(const Duration(days: 7));
     _returnDate    = DateTime.now().add(const Duration(days: 14));
     _loadUserProfile();
-    _loadRecommendations();
   }
 
   Future<void> _loadUserProfile() async {
@@ -65,16 +63,6 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     } catch (_) {}
   }
-
-  Future<void> _loadRecommendations() async {
-    if (_fromCode.length != 3) return;
-    final results = await _api.getRecommendations(
-      _fromCode,
-      destination: _toCode.length == 3 ? _toCode : '',
-    );
-    if (mounted) setState(() => _recommendations = results);
-  }
-
 
   String _formatDisplayDate(DateTime? date) {
     if (date == null) return 'Date de départ';
@@ -194,7 +182,7 @@ class _HomeScreenState extends State<HomeScreen> {
       _fromCode = _toCode; _fromLabel = _toLabel; _fromSelected = _toSelected;
       _toCode = tc; _toLabel = tl; _toSelected = ts;
     });
-    _loadRecommendations();
+
   }
 
   Future<void> _pickAirport({required bool isFrom}) async {
@@ -207,7 +195,7 @@ class _HomeScreenState extends State<HomeScreen> {
       if (isFrom) { _fromCode = code; _fromLabel = label; _fromSelected = true; }
       else        { _toCode   = code; _toLabel   = label; _toSelected   = true; }
     });
-    _loadRecommendations();
+
   }
 
   Future<void> _pickDate({required bool isDeparture}) async {
@@ -838,60 +826,6 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
           ),
         ),
-        if (_recommendations.isNotEmpty) ...[
-          const SizedBox(height: 20),
-          const Text('Compagnies recommandées',
-              style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87)),
-          const SizedBox(height: 10),
-          ..._recommendations.map((r) {
-            final compagnie  = r['compagnie'] as String? ?? '';
-            final confidence =
-                (((r['confidence'] as num?) ?? 0) * 100).toStringAsFixed(0);
-            return Card(
-              margin: const EdgeInsets.only(bottom: 10),
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14)),
-              elevation: 0,
-              color: Colors.white,
-              child: ListTile(
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                leading: Container(
-                  width: 42, height: 42,
-                  decoration: BoxDecoration(
-                    color: _kBlue.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Icon(Icons.flight, color: _kBlue, size: 20),
-                ),
-                title: Text(compagnie,
-                    style: const TextStyle(fontWeight: FontWeight.w600),
-                    overflow: TextOverflow.ellipsis,
-                    maxLines: 1),
-                subtitle: Text(
-                  '$confidence% des voyageurs choisissent cette compagnie',
-                  style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
-                  maxLines: 2,
-                ),
-                trailing: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                  decoration: BoxDecoration(
-                    color: _kBlue.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text('$confidence%',
-                      style: TextStyle(
-                          color: _kBlue,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 13)),
-                ),
-              ),
-            );
-          }),
-        ],
       ],
     );
   }
